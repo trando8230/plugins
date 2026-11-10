@@ -1,0 +1,113 @@
+name: Grok FX
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Ninja
+        run: python -m pip install ninja
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Unit tests
+        working-directory: build
+        run: ctest --output-on-failure --verbose
+
+      - name: Install Audio Unit for validation
+        if: runner.os == 'macOS'
+        run: |
+          source build/grokfx.env
+          ART="build/GrokFX_artefacts/Release/AU/${PRODUCT_NAME}.component"
+          DEST="$HOME/Library/Audio/Plug-Ins/Components"
+          mkdir -p "$DEST"
+          rm -rf "$DEST/${PRODUCT_NAME}.component"
+          cp -R "$ART" "$DEST/"
+          killall -9 AudioComponentRegistrar || true
+          sleep 2
+
+      - name: pluginval
+        timeout-minutes: 90
+        run: |
+          source build/grokfx.env
+          curl -fsSL -o pluginval.zip "https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_${{ runner.os }}.zip"
+          unzip -q pluginval.zip
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            VAL="pluginval.app/Contents/MacOS/pluginval"
+          else
+            VAL="./pluginval.exe"
+          fi
+          ART="build/GrokFX_artefacts/Release"
+          "$VAL" --strictness-level 10 --verbose --validate-in-process --timeout-ms 180000 --validate "$ART/VST3/${PRODUCT_NAME}.vst3"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            "$VAL" --strictness-level 10 --verbose --validate-in-process --timeout-ms 180000 --validate "$ART/AU/${PRODUCT_NAME}.component"
+          fi
+
+      - name: auval
+        if: runner.os == 'macOS'
+        run: |
+          source build/grokfx.env
+          auval -v aumu "$PLUGIN_CODE" "$MANUFACTURER_CODE" | tee auval.txt
+          grep -E "PASS|SUCCEEDED" auval.txt
+
+      - name: GUI snapshots
+        run: |
+          SNAP=$(find build -type f \( -name GrokFXSnapshot -o -name GrokFXSnapshot.exe \) | head -n 1)
+          test -n "$SNAP"
+          "$SNAP" "$PWD/screenshots"
+          find screenshots -type f -name '*.png'
+
+      - name: Package zip
+        run: |
+          source build/grokfx.env
+          ART="build/GrokFX_artefacts/Release"
+          rm -rf dist
+          mkdir -p dist
+          cp -R "$ART/VST3/${PRODUCT_NAME}.vst3" dist/
+          if [ -d "$ART/AU/${PRODUCT_NAME}.component" ]; then
+            cp -R "$ART/AU/${PRODUCT_NAME}.component" dist/
+          fi
+          if [ -d "$ART/Standalone/${PRODUCT_NAME}.app" ]; then
+            cp -R "$ART/Standalone/${PRODUCT_NAME}.app" dist/
+          fi
+          if [ -f "$ART/Standalone/${PRODUCT_NAME}.exe" ]; then
+            cp "$ART/Standalone/${PRODUCT_NAME}.exe" dist/
+          fi
+          cp packaging/INSTALL.txt dist/INSTALL.txt
+          tar -a -cf "GrokFX-${{ runner.os }}.zip" -C dist .
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrokFX-${{ runner.os }}
+          path: GrokFX-${{ runner.os }}.zip
+
+      - name: Upload GUI snapshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: GrokFX-gui-${{ runner.os }}
+          path: screenshots/*.png
