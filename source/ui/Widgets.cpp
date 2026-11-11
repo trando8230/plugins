@@ -221,7 +221,7 @@ void GrokToggle::paintButton(juce::Graphics& g, bool highlighted, bool down)
     g.fillRoundedRectangle(bounds, Theme::radiusS);
     g.setColour(on ? Theme::accentPressed() : Theme::accent().withAlpha(0.25f));
     g.drawRoundedRectangle(bounds, Theme::radiusS, 1.0f);
-    g.setColour(on ? juce::Colours::white : Theme::text());
+    g.setColour(on ? Theme::onAccent() : Theme::text());
     g.setFont(Theme::font(Theme::typeCaption, true));
     g.drawFittedText(getButtonText(), getLocalBounds().reduced(4, 0), juce::Justification::centred, 1);
 }
@@ -244,7 +244,7 @@ void GrokButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
     g.fillRoundedRectangle(bounds.translated(0.0f, 2.0f), Theme::radiusS);
     g.setColour(fill);
     g.fillRoundedRectangle(bounds, Theme::radiusS);
-    g.setColour(on || down || highlighted ? juce::Colours::white : Theme::text());
+    g.setColour(on || down || highlighted ? Theme::onAccent() : Theme::text());
     g.setFont(Theme::font(Theme::typeBody, true));
     g.drawFittedText(getButtonText(), getLocalBounds(), juce::Justification::centred, 1);
 }
@@ -257,7 +257,7 @@ void DiceButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
     const auto icon = getLocalBounds().toFloat().reduced(8.0f);
     const float side = std::min(icon.getWidth(), icon.getHeight());
     const auto die = juce::Rectangle<float>(side, side).withCentre(icon.getCentre()).reduced(1.0f);
-    g.setColour(highlighted || down ? juce::Colours::white : Theme::text());
+    g.setColour(highlighted || down ? Theme::onAccent() : Theme::text());
     juce::Path outline;
     outline.addRoundedRectangle(die, 3.0f);
     g.strokePath(outline, juce::PathStrokeType(1.5f));
@@ -300,7 +300,7 @@ bool SoundPad::tick(float dt)
 
 void SoundPad::drawIcon(juce::Graphics& g, juce::Rectangle<float> area) const
 {
-    g.setColour(selected ? juce::Colours::white.withAlpha(0.9f) : Theme::accent());
+    g.setColour(selected ? Theme::onAccent() : Theme::accent());
     juce::Path path;
     const float left = area.getX();
     const float right = area.getRight();
@@ -372,13 +372,13 @@ void SoundPad::paint(juce::Graphics& g)
     auto content = getLocalBounds().reduced(Theme::space1);
     auto drop = content.removeFromBottom(28);
     drawIcon(g, content.removeFromTop(28).reduced(8, 4).toFloat());
-    g.setColour(selected ? juce::Colours::white : Theme::text());
+    g.setColour(selected ? Theme::onAccent() : Theme::text());
     g.setFont(Theme::font(Theme::typeLabel, true));
     g.drawFittedText(fxTypeName(type), content, juce::Justification::centred, 2);
 
-    g.setColour(selected ? juce::Colours::white.withAlpha(0.18f) : Theme::accentSoft());
+    g.setColour(selected ? Theme::onAccent().withAlpha(0.14f) : Theme::accentSoft());
     g.fillRoundedRectangle(drop.toFloat().reduced(2.0f, 1.0f), Theme::radiusS);
-    g.setColour(selected ? juce::Colours::white : Theme::textMuted());
+    g.setColour(selected ? Theme::onAccent() : Theme::textMuted());
     g.setFont(Theme::font(Theme::typeCaption));
     g.drawFittedText(notice > 0.4f ? "Coming soon" : "Drop a sample here", drop, juce::Justification::centred, 1);
 }
@@ -446,12 +446,21 @@ void WaveformView::mouseDrag(const juce::MouseEvent& event)
     }
 }
 
-void WaveformView::mouseUp(const juce::MouseEvent&) { dragArmed = false; }
+void WaveformView::mouseUp(const juce::MouseEvent& event)
+{
+    if (dragArmed && onPreviewClick != nullptr)
+    {
+        const auto plot = getLocalBounds().toFloat().reduced(10.0f, 12.0f);
+        if (plot.getWidth() > 0.0f)
+            onPreviewClick(std::clamp((event.position.x - plot.getX()) / plot.getWidth(), 0.0f, 1.0f));
+    }
+    dragArmed = false;
+}
 
 void WaveformView::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
-    g.setColour(Theme::text().withAlpha(0.9f));
+    g.setColour(Theme::backgroundBottom());
     g.fillRoundedRectangle(bounds, Theme::radiusM);
     auto plot = bounds.reduced(10.0f, 12.0f);
     g.setColour(juce::Colours::white.withAlpha(0.16f));

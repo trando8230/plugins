@@ -118,6 +118,7 @@ public:
     void mouseUp(const juce::MouseEvent&) override;
     void paint(juce::Graphics& g) override;
     std::function<void()> onExternalDrag;
+    std::function<void(float)> onPreviewClick;
     bool tick(float dt);
 
 private:

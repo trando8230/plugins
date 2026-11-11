@@ -46,6 +46,9 @@ public:
     void newTake();
     void randomizeLayers(juce::Random& random);
     void toggleAB();
+    juce::Result savePreset(const juce::File& file);
+    juce::Result loadPreset(const juce::File& file);
+    static juce::File defaultPresetFile();
 
     uint32_t nonFiniteCount() const noexcept { return engine.nonFiniteCount(); }
     void resetNonFiniteCount() noexcept { engine.resetNonFiniteCount(); }
@@ -54,6 +57,7 @@ public:
     float getMeterR() const noexcept { return meterR.load(std::memory_order_relaxed); }
     float getPlayFraction() const noexcept { return playFraction.load(std::memory_order_relaxed); }
     bool isPreviewRunning() const noexcept { return previewRunning.load(std::memory_order_relaxed); }
+    void togglePreviewAt(float fraction);
 
     grokfx::RenderModel readModel() const noexcept;
     int64_t renderMix(juce::AudioBuffer<float>& destination, double bpm, double sampleRate) const;
@@ -71,6 +75,7 @@ private:
     juce::AudioBuffer<float> floatScratch;
     bool enginePrepared = false;
     std::atomic<int64_t> freeSample { 0 };
+    std::atomic<float> requestedPreviewFraction { -1.0f };
     std::atomic<int64_t> oneshotRemaining { 0 };
 
     std::atomic<int> uiScaleMilli { 10000 };

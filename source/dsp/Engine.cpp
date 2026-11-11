@@ -519,7 +519,7 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
     float delayOutR = 0.0f;
     if (prepared && delayL.size() > 8)
     {
-        const double beats = delayBeats(model.delayDivision);
+        const double beats = delayBeats(model.delayDivision, model.delayStyle);
         int tap = static_cast<int>(std::llround(beats * sampleRate * 60.0 / sanitizeBpm(bpm)));
         tap = std::clamp(tap, 1, static_cast<int>(delayL.size()) - 2);
         const int size = static_cast<int>(delayL.size());

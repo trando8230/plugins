@@ -657,3 +657,22 @@ TEST_CASE("Release package lists the AGPL and Inter OFL", "[license]")
     REQUIRE(workflow.contains("arm64"));
     REQUIRE(workflow.contains("x86_64"));
 }
+
+TEST_CASE("Presets round-trip and reject invalid files", "[preset]")
+{
+    auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                    .getNonexistentChildFile("grokfx-preset-test", ".grokfx", false);
+    auto plugin = makePlugin();
+    setReal(*plugin, "l1_pitch", 7.0f);
+    setReal(*plugin, "delayStyle", 2.0f);
+    REQUIRE(plugin->savePreset(file).wasOk());
+    setReal(*plugin, "l1_pitch", 0.0f);
+    setReal(*plugin, "delayStyle", 0.0f);
+    REQUIRE(plugin->loadPreset(file).wasOk());
+    REQUIRE(getReal(*plugin, "l1_pitch") == Catch::Approx(7.0f));
+    REQUIRE(getReal(*plugin, "delayStyle") == Catch::Approx(2.0f));
+    REQUIRE(file.replaceWithText("invalid"));
+    REQUIRE(plugin->loadPreset(file).failed());
+    REQUIRE(getReal(*plugin, "l1_pitch") == Catch::Approx(7.0f));
+    REQUIRE(file.deleteFile());
+}

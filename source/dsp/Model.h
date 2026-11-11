@@ -192,16 +192,18 @@ inline double divisionBeats(int division) noexcept
     }
 }
 
-inline double delayBeats(int division) noexcept
+inline double delayBeats(int division, int style = 0) noexcept
 {
+    double beats = 0.25;
     switch (division)
     {
-        case 0: return 2.0;
-        case 1: return 1.0;
-        case 2: return 0.5;
-        case 3: return 0.75;
-        default: return 0.25;
+        case 0: beats = 2.0; break;
+        case 1: beats = 1.0; break;
+        case 2: beats = 0.5; break;
+        case 3: beats = 0.75; break;
+        default: break;
     }
+    return beats * (style == 1 ? 1.5 : style == 2 ? 2.0 / 3.0 : 1.0);
 }
 
 // 120 BPM when the host has no usable tempo. Non-positive and non-finite
@@ -324,6 +326,7 @@ struct RenderModel
     int keyMode = 0; // 0 major, 1 minor
     int length = static_cast<int>(Length::fourBars);
     int delayDivision = static_cast<int>(DelayDivision::eighth);
+    int delayStyle = 0;
     int masterFilter = 0;
     int exportBits = 1; // 0=16, 1=24, 2=32f
     int exportRate = 0; // 0=host, 1=44.1, 2=48, 3=96

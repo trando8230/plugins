@@ -17,14 +17,14 @@ GrokLookAndFeel::GrokLookAndFeel()
     setColour(juce::PopupMenu::backgroundColourId, Theme::backgroundTop());
     setColour(juce::PopupMenu::textColourId, Theme::text());
     setColour(juce::PopupMenu::highlightedBackgroundColourId, Theme::accent());
-    setColour(juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+    setColour(juce::PopupMenu::highlightedTextColourId, Theme::onAccent());
     setColour(juce::Label::textColourId, Theme::text());
     setColour(juce::ScrollBar::thumbColourId, Theme::accent().withAlpha(0.45f));
     setColour(juce::TooltipWindow::backgroundColourId, Theme::backgroundTop());
     setColour(juce::TooltipWindow::textColourId, Theme::text());
     setColour(juce::TooltipWindow::outlineColourId, Theme::accent().withAlpha(0.35f));
     setColour(juce::TextButton::textColourOffId, Theme::text());
-    setColour(juce::TextButton::textColourOnId, juce::Colours::white);
+    setColour(juce::TextButton::textColourOnId, Theme::onAccent());
 }
 
 juce::Typeface::Ptr GrokLookAndFeel::getTypefaceForFont(const juce::Font& font)
@@ -92,7 +92,7 @@ void GrokLookAndFeel::drawPopupMenuItem(juce::Graphics& g, const juce::Rectangle
         g.setColour(Theme::accent());
         g.fillRoundedRectangle(row, Theme::radiusS);
     }
-    g.setColour(isHighlighted && isActive ? juce::Colours::white : (isActive ? Theme::text() : Theme::textMuted()));
+    g.setColour(isHighlighted && isActive ? Theme::onAccent() : (isActive ? Theme::text() : Theme::textMuted()));
     g.setFont(Theme::font(Theme::typeBody, isTicked));
     g.drawFittedText(text, area.reduced(Theme::space2, 0), juce::Justification::centredLeft, 1);
     if (hasSubMenu)

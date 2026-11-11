@@ -20,3 +20,7 @@
 - Downlifters fade out over the musical section, and reversing one reverses that envelope. Enforced by `Downlifter fades while reverse makes it rise`.
 - Knob wheel input changes values only inside the drawn dial. Enforced by `Knob wheel responds only inside its circular dial`.
 - Knob readouts format each parameter in its displayed units. Enforced by `Knob values show meaningful units`.
+- Delay note lengths retain their existing parameter choices and support straight, dotted and triplet rhythms. Enforced by `Delay note lengths support dotted and triplet rhythms`.
+- Enabled layers are selected with tabs and the Mix and Drop panels fit without scrolling. Enforced by `Layer tabs add and select enabled layers` and `Mix and drop controls fit without scrolling`.
+- Presets restore parameter state and reject invalid files without changing it. Enforced by `Presets round-trip and reject invalid files`.
+- Clicking the waveform starts preview at the chosen point and clicking again stops it; free preview turns off host following. Enforced by `Waveform preview starts at the clicked position and stops`.

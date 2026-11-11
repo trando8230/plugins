@@ -257,39 +257,75 @@ private:
 MixPanel::MixPanel(GrokFxAudioProcessor& processor)
     : audio(processor)
 {
-    addAndMakeVisible(viewport);
-    viewport.setViewedComponent(&content, false);
-    viewport.setScrollBarsShown(true, false);
     for (int layer = 0; layer < layerCount; ++layer)
     {
         auto* card = cards.add(new Card(audio, layer));
-        content.addAndMakeVisible(card);
+        addChildComponent(card);
+        auto* tab = layerTabs.add(new GrokButton("Layer " + juce::String(layer + 1),
+                                                 "Select layer " + juce::String(layer + 1) + "."));
+        addAndMakeVisible(tab);
+        tab->onClick = [this, layer]() { selectedLayer = layer; audio.setArmedLayer(layer); refresh(); resized(); };
     }
+    addAndMakeVisible(addLayer);
+    addLayer.onClick = [this]()
+    {
+        for (int layer = 0; layer < layerCount; ++layer)
+        {
+            auto* parameter = audio.apvts.getParameter(layerParam(layer, "enabled"));
+            if (parameter != nullptr && parameter->getValue() < 0.5f)
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost(1.0f);
+                parameter->endChangeGesture();
+                selectedLayer = layer;
+                audio.setArmedLayer(layer);
+                refresh();
+                resized();
+                return;
+            }
+        }
+    };
+    refresh();
 }
 
-MixPanel::~MixPanel()
-{
-    viewport.setViewedComponent(nullptr, false);
-}
+MixPanel::~MixPanel() = default;
 
 void MixPanel::resized()
 {
-    viewport.setBounds(getLocalBounds().reduced(Theme::space1));
-    const int width = viewport.getWidth() - 12;
-    int y = 0;
-    for (auto* card : cards)
+    auto area = getLocalBounds().reduced(Theme::space1);
+    auto tabs = area.removeFromTop(Theme::controlH);
+    for (int layer = 0; layer < layerTabs.size(); ++layer)
     {
-        const int height = card->contentHeight();
-        card->setBounds(0, y, width, height);
-        y += height + Theme::space1;
+        if (layerTabs[layer]->isVisible())
+            layerTabs[layer]->setBounds(tabs.removeFromLeft(92).reduced(2, 0));
     }
-    content.setSize(width, y);
+    addLayer.setBounds(tabs.removeFromLeft(40).reduced(2, 0));
+    area.removeFromTop(Theme::space1);
+    for (auto* card : cards)
+        card->setBounds(area);
 }
 
 void MixPanel::refresh()
 {
-    for (auto* card : cards)
-        card->repaint();
+    bool layoutChanged = false;
+    for (int layer = 0; layer < cards.size(); ++layer)
+    {
+        auto* enabled = audio.apvts.getRawParameterValue(layerParam(layer, "enabled"));
+        const bool active = enabled != nullptr && enabled->load() >= 0.5f;
+        const bool visible = active || layer == selectedLayer;
+        layoutChanged = layoutChanged || layerTabs[layer]->isVisible() != visible;
+        layerTabs[layer]->setVisible(visible);
+        layerTabs[layer]->setToggleState(layer == selectedLayer, juce::dontSendNotification);
+        cards[layer]->setVisible(layer == selectedLayer);
+        cards[layer]->repaint();
+    }
+    bool full = true;
+    for (int layer = 0; layer < layerCount; ++layer)
+        if (auto* enabled = audio.apvts.getRawParameterValue(layerParam(layer, "enabled")))
+            full = full && enabled->load() >= 0.5f;
+    addLayer.setEnabled(!full);
+    if (layoutChanged)
+        resized();
 }
 
 DropPanel::DropPanel(GrokFxAudioProcessor& processor, std::function<void()> dragFiles)
@@ -305,8 +341,9 @@ DropPanel::DropPanel(GrokFxAudioProcessor& processor, std::function<void()> drag
     addAndMakeVisible(wave);
     addAndMakeVisible(levels);
     wave.onExternalDrag = std::move(dragFiles);
-    wave.setTooltip("Drag this card onto an Ableton audio track. The file ends on the drop.");
-    levels.setTooltip("Output meter. It is drawn from the editor timer, not the audio thread.");
+    wave.setTooltip("Click to audition from that point or drag the audio onto a track.");
+    wave.onPreviewClick = [this](float fraction) { audio.togglePreviewAt(fraction); };
+    levels.setTooltip("Shows the left and right output levels.");
 
     auto bindKnob = [this](GrokKnob& knob, const char* id)
     {
@@ -349,16 +386,13 @@ DropPanel::DropPanel(GrokFxAudioProcessor& processor, std::function<void()> drag
     bindKnob(resonance, "masterResonance");
     bindKnob(reverb, "reverbSize");
     bindKnob(delay, "delayAmount");
+    bindChoice(delayTime, "delayDivision");
+    bindChoice(delayRhythm, "delayStyle");
 
-    addAndMakeVisible(viewport);
-    viewport.setViewedComponent(&details, false);
-    viewport.setScrollBarsShown(true, false);
+    addAndMakeVisible(details);
 }
 
-DropPanel::~DropPanel()
-{
-    viewport.setViewedComponent(nullptr, false);
-}
+DropPanel::~DropPanel() = default;
 
 void DropPanel::resized()
 {
@@ -367,7 +401,7 @@ void DropPanel::resized()
     title.setBounds(heading.removeFromLeft(80));
     bpm.setBounds(heading);
     area.removeFromTop(Theme::space1);
-    auto waveRow = area.removeFromTop(144);
+    auto waveRow = area.removeFromTop(120);
     levels.setBounds(waveRow.removeFromRight(24));
     waveRow.removeFromRight(Theme::space1);
     wave.setBounds(waveRow);
@@ -376,29 +410,32 @@ void DropPanel::resized()
     preview.setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(2, 0));
     newTake.setBounds(buttons.reduced(2, 0));
     area.removeFromTop(Theme::space1);
-    viewport.setBounds(area);
+    details.setBounds(area);
 
-    int y = Theme::space1;
-    const int width = std::max(160, viewport.getWidth() - 12);
+    int y = 0;
+    const int width = details.getWidth();
+    const int gap = 4;
+    const int controlHeight = 28;
+    const int knobHeight = std::max(40, (details.getHeight() - 4 * controlHeight - 7 * gap) / 4);
     auto nextRow = [&](int height)
     {
         juce::Rectangle<int> row(0, y, width, height);
-        y += height + Theme::space1;
+        y += height + gap;
         return row;
     };
     {
-        auto row = nextRow(Theme::knobCellH);
+        auto row = nextRow(knobHeight);
         strength.setBounds(row.removeFromLeft(width / 2).reduced(2, 0));
         tail.setBounds(row.reduced(2, 0));
     }
     {
-        auto row = nextRow(Theme::controlH);
+        auto row = nextRow(controlHeight);
         bits.setBounds(row.removeFromLeft(width / 2).reduced(2, 0));
         rate.setBounds(row.reduced(2, 0));
     }
-    stems.setBounds(nextRow(Theme::controlH).reduced(2, 0));
+    stems.setBounds(nextRow(controlHeight).reduced(2, 0));
     {
-        auto row = nextRow(Theme::knobCellH);
+        auto row = nextRow(knobHeight);
         const int cell = width / 4;
         intensity.setBounds(row.removeFromLeft(cell).reduced(1, 0));
         space.setBounds(row.removeFromLeft(cell).reduced(1, 0));
@@ -406,7 +443,7 @@ void DropPanel::resized()
         tension.setBounds(row.reduced(1, 0));
     }
     {
-        auto row = nextRow(Theme::knobCellH);
+        auto row = nextRow(knobHeight);
         const int cell = width / 4;
         tone.setBounds(row.removeFromLeft(cell).reduced(1, 0));
         gain.setBounds(row.removeFromLeft(cell).reduced(1, 0));
@@ -414,19 +451,23 @@ void DropPanel::resized()
         ceiling.setBounds(row.reduced(1, 0));
     }
     {
-        auto row = nextRow(Theme::controlH);
+        auto row = nextRow(controlHeight);
         limiter.setBounds(row.removeFromLeft(width / 2).reduced(2, 0));
         filter.setBounds(row.reduced(2, 0));
     }
     {
-        auto row = nextRow(Theme::knobCellH);
+        auto row = nextRow(knobHeight);
         const int cell = width / 4;
         cutoff.setBounds(row.removeFromLeft(cell).reduced(1, 0));
         resonance.setBounds(row.removeFromLeft(cell).reduced(1, 0));
         reverb.setBounds(row.removeFromLeft(cell).reduced(1, 0));
         delay.setBounds(row.reduced(1, 0));
     }
-    details.setSize(width, y + Theme::space2);
+    {
+        auto row = nextRow(controlHeight);
+        delayTime.setBounds(row.removeFromLeft(width / 2).reduced(2, 0));
+        delayRhythm.setBounds(row.reduced(2, 0));
+    }
 }
 
 void DropPanel::refreshTransport(double bpmValue, bool)

@@ -32,9 +32,10 @@ public:
 private:
     class Card;
     GrokFxAudioProcessor& audio;
-    juce::Viewport viewport;
-    juce::Component content;
     juce::OwnedArray<Card> cards;
+    juce::OwnedArray<GrokButton> layerTabs;
+    GrokButton addLayer { "+", "Add another layer and select it." };
+    int selectedLayer = 0;
 };
 
 class DropPanel : public juce::Component
@@ -68,6 +69,8 @@ public:
     GrokKnob resonance { "Reso", "Master filter resonance." };
     GrokKnob reverb { "Room", "Master reverb size." };
     GrokKnob delay { "Delay", "Master delay amount." };
+    GrokChoice delayTime { "Choose the tempo-synced delay note length." };
+    GrokChoice delayRhythm { "Set the delay rhythm to straight, dotted, or triplet." };
 
 private:
     GrokFxAudioProcessor& audio;
@@ -75,7 +78,6 @@ private:
     juce::Label bpm { {}, "120 BPM" };
     WaveformView wave;
     OutputMeter levels;
-    juce::Viewport viewport;
     juce::Component details;
 };
 

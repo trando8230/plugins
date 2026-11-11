@@ -122,6 +122,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addFloat(*master, "delayAmount", "Delay Amount", Range(0.0f, 1.0f), 0.22f, "%");
     addFloat(*master, "delayFeedback", "Delay Feedback", Range(0.0f, 0.85f), 0.32f, "%");
     addChoice(*master, "delayDivision", "Delay Time", { "1/2", "1/4", "1/8", "1/8d", "1/16" }, 2);
+    addChoice(*master, "delayStyle", "Delay Rhythm", { "Straight", "Dotted", "Triplet" }, 0);
     addChoice(*master, "masterFilter", "Master Filter", filters, 0);
     addFloat(*master, "masterCutoff", "Master Cutoff", Range(20.0f, 20000.0f, 0.0f, 0.3f), 14000.0f, "Hz");
     addFloat(*master, "masterResonance", "Master Resonance", Range(0.0f, 1.0f), 0.12f, "%");

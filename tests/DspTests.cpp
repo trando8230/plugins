@@ -450,3 +450,33 @@ TEST_CASE("Downlifter fades while reverse makes it rise", "[downlifter]")
         else REQUIRE(last > first * 1.5f);
     }
 }
+
+TEST_CASE("Delay note lengths support dotted and triplet rhythms", "[delay]")
+{
+    using Catch::Approx;
+    REQUIRE(grokfx::delayBeats(1, 0) == Approx(1.0));
+    REQUIRE(grokfx::delayBeats(2, 1) == Approx(0.75));
+    REQUIRE(grokfx::delayBeats(4, 2) == Approx(1.0 / 6.0));
+    REQUIRE(grokfx::delayBeats(3, 0) == Approx(0.75));
+    auto plugin = makePlugin();
+    setReal(*plugin, "delayStyle", 2.0f);
+    REQUIRE(plugin->readModel().delayStyle == 2);
+}
+
+TEST_CASE("Waveform preview starts at the clicked position and stops", "[preview]")
+{
+    auto plugin = makePlugin();
+    plugin->prepareToPlay(48000.0, 64);
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    setReal(*plugin, "followHost", 1.0f);
+    plugin->togglePreviewAt(0.5f);
+    REQUIRE(getReal(*plugin, "followHost") == Catch::Approx(0.0f));
+    REQUIRE(getReal(*plugin, "preview") == Catch::Approx(1.0f));
+    juce::AudioBuffer<float> buffer(2, 64);
+    juce::MidiBuffer midi;
+    plugin->processBlock(buffer, midi);
+    REQUIRE(plugin->getPlayFraction() > 0.49f);
+    REQUIRE(plugin->getPlayFraction() < 0.52f);
+    plugin->togglePreviewAt(0.8f);
+    REQUIRE(getReal(*plugin, "preview") == Catch::Approx(0.0f));
+}

@@ -42,19 +42,20 @@ struct Theme
     static constexpr int knobCellH = 80;
     static constexpr int controlH = 32;
 
-    static juce::Colour backgroundTop() { return juce::Colour::fromRGB(244, 250, 255); }
-    static juce::Colour backgroundMid() { return juce::Colour::fromRGB(215, 236, 248); }
-    static juce::Colour backgroundBottom() { return juce::Colour::fromRGB(185, 212, 234); }
-    static juce::Colour glassTop() { return juce::Colour::fromRGBA(255, 255, 255, 196); }
-    static juce::Colour glassBottom() { return juce::Colour::fromRGBA(232, 244, 252, 168); }
-    static juce::Colour border() { return juce::Colour::fromRGBA(255, 255, 255, 226); }
-    static juce::Colour highlight() { return juce::Colour::fromRGBA(255, 255, 255, 242); }
-    static juce::Colour shadow() { return juce::Colour::fromRGBA(22, 48, 68, 38); }
-    static juce::Colour text() { return juce::Colour::fromRGB(22, 48, 68); }
-    static juce::Colour textMuted() { return juce::Colour::fromRGB(62, 98, 120); }
-    static juce::Colour accent() { return juce::Colour::fromRGB(31, 122, 224); }
-    static juce::Colour accentSoft() { return juce::Colour::fromRGB(214, 233, 250); }
-    static juce::Colour meterTrack() { return juce::Colour::fromRGBA(22, 48, 68, 32); }
+    static juce::Colour backgroundTop() { return juce::Colour::fromRGB(19, 23, 20); }
+    static juce::Colour backgroundMid() { return juce::Colour::fromRGB(12, 16, 13); }
+    static juce::Colour backgroundBottom() { return juce::Colour::fromRGB(7, 10, 8); }
+    static juce::Colour glassTop() { return juce::Colour::fromRGBA(38, 45, 39, 245); }
+    static juce::Colour glassBottom() { return juce::Colour::fromRGBA(23, 29, 24, 245); }
+    static juce::Colour border() { return juce::Colour::fromRGBA(137, 163, 133, 55); }
+    static juce::Colour highlight() { return juce::Colour::fromRGBA(202, 230, 193, 35); }
+    static juce::Colour shadow() { return juce::Colour::fromRGBA(0, 0, 0, 100); }
+    static juce::Colour text() { return juce::Colour::fromRGB(239, 245, 233); }
+    static juce::Colour textMuted() { return juce::Colour::fromRGB(164, 180, 161); }
+    static juce::Colour accent() { return juce::Colour::fromRGB(182, 239, 56); }
+    static juce::Colour accentSoft() { return juce::Colour::fromRGB(47, 62, 36); }
+    static juce::Colour meterTrack() { return juce::Colour::fromRGBA(147, 175, 142, 55); }
+    static juce::Colour onAccent() { return juce::Colour::fromRGB(14, 22, 10); }
 
     static juce::Colour accentPressed() { return accent().darker(0.28f); }
 

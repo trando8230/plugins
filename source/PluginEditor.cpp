@@ -94,10 +94,8 @@ GrokFxAudioProcessorEditor::GrokFxAudioProcessorEditor(GrokFxAudioProcessor& pro
     logo.setText(grokfx::productName, juce::dontSendNotification);
     logo.setFont(grokfx::Theme::font(grokfx::Theme::typeLogo, true));
     logo.setColour(juce::Label::textColourId, grokfx::Theme::text());
-    company.setText(grokfx::manufacturer, juce::dontSendNotification);
-    company.setFont(grokfx::Theme::font(grokfx::Theme::typeCaption));
-    company.setColour(juce::Label::textColourId, grokfx::Theme::textMuted());
     bpm.setFont(grokfx::Theme::font(grokfx::Theme::typeBody, true));
+    bpm.setText("120 BPM", juce::dontSendNotification);
     bpm.setColour(juce::Label::textColourId, grokfx::Theme::accent());
     bpm.setJustificationType(juce::Justification::centredRight);
     bpm.setTooltip("Tempo from the host. Standalone and hosts without a playhead stay at 120 BPM.");
@@ -105,7 +103,9 @@ GrokFxAudioProcessorEditor::GrokFxAudioProcessorEditor(GrokFxAudioProcessor& pro
     content.addAndMakeVisible(logo);
     content.addAndMakeVisible(randomize);
     content.addAndMakeVisible(follow);
-    content.addAndMakeVisible(company);
+    content.addAndMakeVisible(loadPresetButton);
+    content.addAndMakeVisible(savePresetButton);
+    content.addAndMakeVisible(defaultPresetButton);
     content.addAndMakeVisible(bpm);
     content.addAndMakeVisible(key);
     content.addAndMakeVisible(mode);
@@ -120,6 +120,12 @@ GrokFxAudioProcessorEditor::GrokFxAudioProcessorEditor(GrokFxAudioProcessor& pro
 
     key.bind(audio.apvts, "keyRoot");
     follow.bind(audio.apvts, "followHost");
+    loadPresetButton.onClick = [this]() { choosePreset(false); };
+    savePresetButton.onClick = [this]() { choosePreset(true); };
+    defaultPresetButton.onClick = [this]()
+    {
+        showPresetResult(audio.savePreset(GrokFxAudioProcessor::defaultPresetFile()), "Default preset saved.");
+    };
     randomize.onClick = [this]()
     {
         juce::Random random;
@@ -213,7 +219,7 @@ void GrokFxAudioProcessorEditor::rebuildBlur()
     imageGraphics.fillAll();
     imageGraphics.setColour(grokfx::Theme::accent().withAlpha(0.18f));
     imageGraphics.fillEllipse(static_cast<float>(getWidth()) * 0.55f, -40.0f, 420.0f, 280.0f);
-    imageGraphics.setColour(juce::Colours::white.withAlpha(0.4f));
+    imageGraphics.setColour(grokfx::Theme::accent().withAlpha(0.06f));
     imageGraphics.fillEllipse(-80.0f, static_cast<float>(getHeight()) * 0.42f, 360.0f, 240.0f);
 
     juce::ImageConvolutionKernel kernel(17);
@@ -234,8 +240,10 @@ void GrokFxAudioProcessorEditor::resized()
     auto header = area.removeFromTop(grokfx::Theme::headerH);
     randomize.setBounds(header.removeFromLeft(48).reduced(4, 16));
     auto brand = header.removeFromLeft(188);
-    logo.setBounds(brand.removeFromTop(36));
-    company.setBounds(brand);
+    logo.setBounds(brand);
+    loadPresetButton.setBounds(header.removeFromLeft(68).reduced(3, 16));
+    savePresetButton.setBounds(header.removeFromLeft(68).reduced(3, 16));
+    defaultPresetButton.setBounds(header.removeFromLeft(78).reduced(3, 16));
     compare.setBounds(header.removeFromRight(56).reduced(4, 16));
     redo.setBounds(header.removeFromRight(72).reduced(4, 16));
     undo.setBounds(header.removeFromRight(72).reduced(4, 16));
@@ -253,6 +261,35 @@ void GrokFxAudioProcessorEditor::resized()
     mix.setBounds(area);
 
     rebuildBlur();
+}
+
+void GrokFxAudioProcessorEditor::showPresetResult(const juce::Result& result, const juce::String& success)
+{
+    presetMessage = result.wasOk() ? success : result.getErrorMessage();
+    presetMessageUntil = juce::Time::getMillisecondCounterHiRes() + 4000.0;
+    drop.waveform().setStatus(presetMessage);
+}
+
+void GrokFxAudioProcessorEditor::choosePreset(bool save)
+{
+    presetChooser = std::make_unique<juce::FileChooser>(save ? "Save Grok FX preset" : "Load Grok FX preset",
+                                                       juce::File(), "*.grokfx");
+    const int chooserFlags = (save ? juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting
+                            : juce::FileBrowserComponent::openMode)
+                    | juce::FileBrowserComponent::canSelectFiles;
+    juce::Component::SafePointer<GrokFxAudioProcessorEditor> safeThis(this);
+    presetChooser->launchAsync(chooserFlags, [safeThis, save](const juce::FileChooser& chooser)
+    {
+        if (safeThis == nullptr)
+            return;
+        auto file = chooser.getResult();
+        if (file == juce::File())
+            return;
+        if (save && !file.hasFileExtension("grokfx"))
+            file = file.withFileExtension("grokfx");
+        const auto result = save ? safeThis->audio.savePreset(file) : safeThis->audio.loadPreset(file);
+        safeThis->showPresetResult(result, save ? "Preset saved." : "Preset loaded.");
+    });
 }
 
 void GrokFxAudioProcessorEditor::tickTree(juce::Component& component, float dt)
@@ -288,7 +325,8 @@ void GrokFxAudioProcessorEditor::timerCallback()
     }
 
     const auto exportError = audio.lastExportError();
-    drop.waveform().setStatus(exportError);
+    drop.waveform().setStatus(exportError.isNotEmpty() ? exportError
+        : (juce::Time::getMillisecondCounterHiRes() < presetMessageUntil ? presetMessage : juce::String()));
     if (exportError.isNotEmpty())
         drop.waveform().setTooltip(exportError);
 }

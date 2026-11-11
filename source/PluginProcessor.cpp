@@ -97,6 +97,7 @@ struct GrokFxAudioProcessor::Raw
     std::atomic<float>* delayAmount = nullptr;
     std::atomic<float>* delayFeedback = nullptr;
     std::atomic<float>* delayDivision = nullptr;
+    std::atomic<float>* delayStyle = nullptr;
     std::atomic<float>* masterFilter = nullptr;
     std::atomic<float>* masterCutoff = nullptr;
     std::atomic<float>* masterResonance = nullptr;
@@ -176,6 +177,7 @@ GrokFxAudioProcessor::GrokFxAudioProcessor()
     raw->delayAmount = bind("delayAmount");
     raw->delayFeedback = bind("delayFeedback");
     raw->delayDivision = bind("delayDivision");
+    raw->delayStyle = bind("delayStyle");
     raw->masterFilter = bind("masterFilter");
     raw->masterCutoff = bind("masterCutoff");
     raw->masterResonance = bind("masterResonance");
@@ -188,9 +190,65 @@ GrokFxAudioProcessor::GrokFxAudioProcessor()
     raw->exportBits = bind("exportBits");
     raw->exportRate = bind("exportRate");
     raw->exportStems = bind("exportStems");
+    const auto defaultFile = defaultPresetFile();
+    if (defaultFile.existsAsFile())
+        juce::ignoreUnused(loadPreset(defaultFile));
 }
 
 GrokFxAudioProcessor::~GrokFxAudioProcessor() = default;
+
+void GrokFxAudioProcessor::togglePreviewAt(float fraction)
+{
+    auto* previewParam = apvts.getParameter("preview");
+    if (previewParam == nullptr)
+        return;
+    const bool playing = previewParam->getValue() >= 0.5f;
+    if (!playing)
+    {
+        requestedPreviewFraction.store(std::clamp(fraction, 0.0f, 1.0f), std::memory_order_release);
+        if (auto* follow = apvts.getParameter("followHost"); follow != nullptr && follow->getValue() >= 0.5f)
+        {
+            follow->beginChangeGesture();
+            follow->setValueNotifyingHost(0.0f);
+            follow->endChangeGesture();
+        }
+    }
+    else
+        requestedPreviewFraction.store(-1.0f, std::memory_order_release);
+    previewParam->beginChangeGesture();
+    previewParam->setValueNotifyingHost(playing ? 0.0f : 1.0f);
+    previewParam->endChangeGesture();
+}
+
+juce::File GrokFxAudioProcessor::defaultPresetFile()
+{
+    return juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+        .getChildFile("Grok FX").getChildFile("Default.grokfx");
+}
+
+juce::Result GrokFxAudioProcessor::savePreset(const juce::File& file)
+{
+    auto directoryResult = file.getParentDirectory().createDirectory();
+    if (directoryResult.failed())
+        return directoryResult;
+    juce::MemoryBlock data;
+    getStateInformation(data);
+    if (data.isEmpty() || !file.replaceWithData(data.getData(), data.getSize()))
+        return juce::Result::fail("Could not save the preset.");
+    return juce::Result::ok();
+}
+
+juce::Result GrokFxAudioProcessor::loadPreset(const juce::File& file)
+{
+    juce::MemoryBlock data;
+    if (!file.loadFileAsData(data))
+        return juce::Result::fail("Could not read the preset.");
+    auto xml = getXmlFromBinary(data.getData(), static_cast<int>(data.getSize()));
+    if (xml == nullptr || !xml->hasTagName(apvts.state.getType().toString()))
+        return juce::Result::fail("This is not a valid Grok FX preset.");
+    setStateInformation(data.getData(), static_cast<int>(data.getSize()));
+    return juce::Result::ok();
+}
 
 void GrokFxAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
@@ -270,6 +328,7 @@ grokfx::RenderModel GrokFxAudioProcessor::readModel() const noexcept
     model.delayAmount = loadRaw(raw->delayAmount);
     model.delayFeedback = loadRaw(raw->delayFeedback);
     model.delayDivision = loadInt(raw->delayDivision, 2);
+    model.delayStyle = loadInt(raw->delayStyle, 0);
     model.masterFilter = loadInt(raw->masterFilter, 0);
     model.masterCutoff = loadRaw(raw->masterCutoff);
     model.masterResonance = loadRaw(raw->masterResonance);
@@ -316,6 +375,9 @@ void GrokFxAudioProcessor::renderFree(juce::AudioBuffer<float>& buffer, int offs
     if (count <= 0 || total <= 0)
         return;
     int64_t cursor = freeSample.load(std::memory_order_relaxed);
+    const float requested = requestedPreviewFraction.exchange(-1.0f, std::memory_order_acq_rel);
+    if (requested >= 0.0f)
+        cursor = std::min(total - 1, static_cast<int64_t>(requested * static_cast<double>(total)));
     int rendered = 0;
     while (rendered < count)
     {

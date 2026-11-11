@@ -2,7 +2,7 @@
 
 Grok FX is a stereo instrument by Rando Audio. It builds transition effects in the song's key and tempo: risers, downlifters, impacts, snare rolls, noise sweeps, reverse-cymbal swells and sub drops. Load it on a MIDI track, preview the mix, then drag the waveform card onto an audio track.
 
-This repository is phase 1. Custom sample import, key detection, slicing, stretch and presets are not in this build. Each sound pad still has a drop zone so that path can land later; it shows "Coming soon" and does not load the file.
+Custom sample import, key detection, slicing and stretch are not in this build. Each sound pad still has a drop zone for that later work; it shows "Coming soon" and does not load the file. Presets can be saved, loaded, or set as the default for new instances.
 
 ## Identity
 
@@ -39,7 +39,7 @@ Bundles are written under `build/GrokFX_artefacts/Release/`. See `packaging/INST
 
 Pick, Mix and Drop sit left to right. Pick chooses a bank and a type for the armed layer. Mix is four layer strips. Drop shows the rendered clip, the preview transport, the macros and the master. Drag the waveform to write a stereo WAV named `GrokFX_<types>_<key>_<bpm>bpm_<length>.wav`.
 
-The UI uses an 8 px grid, the Inter family (SIL Open Font License, see `licenses/OFL-Inter.txt`) and one accent blue on a light glass surface. The window keeps its aspect ratio from 75% to 200% and stores that size in the plugin state.
+The UI uses an 8 px grid, the Inter family (SIL Open Font License, see `licenses/OFL-Inter.txt`) and a dark surface with lime accents. The window keeps its aspect ratio from 75% to 200% and stores that size in the plugin state.
 
 ## Tests and CI
 
