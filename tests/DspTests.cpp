@@ -480,3 +480,21 @@ TEST_CASE("Waveform preview starts at the clicked position and stops", "[preview
     plugin->togglePreviewAt(0.8f);
     REQUIRE(getReal(*plugin, "preview") == Catch::Approx(0.0f));
 }
+
+TEST_CASE("Space at zero removes reverb without changing the dry sound", "[reverb]")
+{
+    auto plugin = makePlugin();
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    setReal(*plugin, "l1_delaySend", 0.0f);
+    setReal(*plugin, "space", 0.0f);
+    juce::AudioBuffer<float> noSend;
+    juce::AudioBuffer<float> sent;
+    setReal(*plugin, "l1_reverbSend", 0.0f);
+    plugin->renderMix(noSend, 120.0, 48000.0);
+    setReal(*plugin, "l1_reverbSend", 1.0f);
+    plugin->renderMix(sent, 120.0, 48000.0);
+    REQUIRE(sent.getNumSamples() == noSend.getNumSamples());
+    for (int channel = 0; channel < 2; ++channel)
+        for (int sample = 0; sample < sent.getNumSamples(); ++sample)
+            REQUIRE(sent.getSample(channel, sample) == Catch::Approx(noSend.getSample(channel, sample)).margin(0.000001f));
+}

@@ -455,7 +455,9 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
     float dryR = 0.0f;
     float sendR = 0.0f;
     float sendD = 0.0f;
-    const float space = unityMacro(model.space);
+    // At zero Space the reverb send is silent; the midpoint retains the
+    // original default reverb level.
+    const float space = (std::isfinite(model.space) ? std::clamp(model.space, 0.0f, 1.0f) : 0.5f) * 2.0f;
 
     for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
     {
