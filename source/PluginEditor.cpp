@@ -23,8 +23,19 @@ public:
         return true;
     }
 
+    juce::Array<juce::File> readyFiles() const
+    {
+        const juce::ScopedLock lock(mutex);
+        return files;
+    }
+
     void run() override
     {
+        auto stop = [](void* context) -> bool
+        {
+            return static_cast<juce::Thread*>(context)->threadShouldExit();
+        };
+
         while (!threadShouldExit())
         {
             if (!dirty.exchange(false))
@@ -38,11 +49,25 @@ public:
             constexpr double rate = 44100.0;
             grokfx::Engine engine;
             juce::AudioBuffer<float> buffer;
-            engine.renderOffline(buffer, model, bpm, rate);
+            const auto written = engine.renderOffline(buffer, model, bpm, rate, stop, this);
+            if (threadShouldExit())
+                return;
+            if (written < buffer.getNumSamples() || dirty.load())
+                continue;
+
             auto peaks = grokfx::Engine::peaksFor(buffer, grokfx::musicalSamples(model.length, bpm, rate));
+            const double hostRate = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 48000.0;
+            auto directory = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("GrokFX");
+            auto exported = processor.renderExportFiles(directory, hostRate, stop, this);
+            if (threadShouldExit())
+                return;
+            if (dirty.load())
+                continue;
+
             const juce::ScopedLock lock(mutex);
             latest = peaks;
             ready = true;
+            files = exported;
         }
     }
 
@@ -50,6 +75,7 @@ private:
     GrokFxAudioProcessor& processor;
     juce::CriticalSection mutex;
     grokfx::WavePeaks latest;
+    juce::Array<juce::File> files;
     std::atomic<bool> dirty { false };
     bool ready = false;
 };
@@ -94,6 +120,9 @@ GrokFxAudioProcessorEditor::GrokFxAudioProcessorEditor(GrokFxAudioProcessor& pro
     mode.bind(audio.apvts, "keyMode");
     length.bind(audio.apvts, "length");
     audio.apvts.state.addListener(this);
+    for (auto* parameter : audio.getParameters())
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(parameter))
+            audio.apvts.addParameterListener(withId->paramID, this);
     undo.onClick = [this]() { audio.undoManager.undo(); };
     redo.onClick = [this]() { audio.undoManager.redo(); };
     compare.onClick = [this]()
@@ -125,12 +154,15 @@ GrokFxAudioProcessorEditor::GrokFxAudioProcessorEditor(GrokFxAudioProcessor& pro
 GrokFxAudioProcessorEditor::~GrokFxAudioProcessorEditor()
 {
     audio.apvts.state.removeListener(this);
+    for (auto* parameter : audio.getParameters())
+        if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*>(parameter))
+            audio.apvts.removeParameterListener(withId->paramID, this);
     stopTimer();
     if (peaks != nullptr)
     {
         peaks->signalThreadShouldExit();
         peaks->notify();
-        peaks->stopThread(2000);
+        peaks->stopThread(-1);
     }
     setLookAndFeel(nullptr);
     juce::LookAndFeel::setDefaultLookAndFeel(nullptr);
@@ -243,6 +275,17 @@ void GrokFxAudioProcessorEditor::timerCallback()
         if (peaks->consume(latest))
             drop.waveform().setPeaks(latest.minColumn, latest.maxColumn, latest.columns, latest.dropFraction);
     }
+
+    const auto exportError = audio.lastExportError();
+    drop.waveform().setStatus(exportError);
+    if (exportError.isNotEmpty())
+        drop.waveform().setTooltip(exportError);
+}
+
+void GrokFxAudioProcessorEditor::parameterChanged(const juce::String&, float)
+{
+    if (peaks != nullptr)
+        peaks->request();
 }
 
 void GrokFxAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&)
@@ -264,13 +307,18 @@ void GrokFxAudioProcessorEditor::renderWaveformSync()
     drop.waveform().tick(1.0f);
 }
 
+juce::Array<juce::File> GrokFxAudioProcessorEditor::readyDragFiles() const
+{
+    return peaks != nullptr ? peaks->readyFiles() : juce::Array<juce::File>{};
+}
+
 void GrokFxAudioProcessorEditor::dragExport()
 {
-    auto directory = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("GrokFX");
-    const auto files = audio.renderExportFiles(directory, audio.getSampleRate() > 0.0 ? audio.getSampleRate() : 48000.0);
+    const auto files = readyDragFiles();
     juce::StringArray paths;
     for (const auto& file : files)
-        paths.add(file.getFullPathName());
+        if (file.existsAsFile())
+            paths.add(file.getFullPathName());
     if (paths.isEmpty())
         return;
     performExternalDragDropOfFiles(paths, false, this);

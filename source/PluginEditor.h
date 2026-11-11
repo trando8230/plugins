@@ -7,6 +7,7 @@
 class GrokFxAudioProcessorEditor : public juce::AudioProcessorEditor,
                                    private juce::Timer,
                                    private juce::ValueTree::Listener,
+                                   private juce::AudioProcessorValueTreeState::Listener,
                                    public juce::DragAndDropContainer
 {
 public:
@@ -16,6 +17,7 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
     void renderWaveformSync();
+    juce::Array<juce::File> readyDragFiles() const;
 
     juce::Image blurredBackground() const { return blur; }
     float backgroundScale() const { return blurScale; }
@@ -25,6 +27,7 @@ private:
 
     void timerCallback() override;
     void valueTreePropertyChanged(juce::ValueTree&, const juce::Identifier&) override;
+    void parameterChanged(const juce::String&, float) override;
     void rebuildBlur();
     void tickTree(juce::Component& component, float dt);
     void dragExport();

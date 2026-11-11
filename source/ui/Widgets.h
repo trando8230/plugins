@@ -101,6 +101,7 @@ class WaveformView : public juce::Component,
 public:
     void setPeaks(const float* mins, const float* maxes, int count, float dropFraction);
     void setPlayhead(float fraction, bool running);
+    void setStatus(const juce::String& text);
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
@@ -118,6 +119,7 @@ private:
     float playhead = 0.0f;
     bool playing = false;
     bool dragArmed = false;
+    juce::String status;
 };
 
 class OutputMeter : public juce::Component,

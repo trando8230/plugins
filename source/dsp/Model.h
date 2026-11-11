@@ -125,6 +125,12 @@ inline constexpr const char* bankName(int bank)
     }
 }
 
+// Shared by the engine and the pitch tests. MIDI 69 is A4 at 440 Hz.
+inline float noteToHz(float midi) noexcept
+{
+    return 440.0f * std::pow(2.0f, (midi - 69.0f) / 12.0f);
+}
+
 inline constexpr const char* noteName(int root)
 {
     switch (root & 11)

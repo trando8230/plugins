@@ -57,8 +57,11 @@ public:
 
     grokfx::RenderModel readModel() const noexcept;
     int64_t renderMix(juce::AudioBuffer<float>& destination, double bpm, double sampleRate) const;
-    juce::Array<juce::File> renderExportFiles(const juce::File& directory, double hostSampleRate) const;
+    juce::Array<juce::File> renderExportFiles(const juce::File& directory, double hostSampleRate,
+                                               bool (*shouldStop)(void*) = nullptr,
+                                               void* stopContext = nullptr) const;
     juce::String makeExportFileName(double bpm, int stemLayer) const;
+    juce::String lastExportError() const;
 
 private:
     struct Raw;
@@ -67,8 +70,8 @@ private:
     double currentSampleRate = 44100.0;
     juce::AudioBuffer<float> floatScratch;
     bool enginePrepared = false;
-    int64_t freeSample = 0;
-    int64_t oneshotRemaining = 0;
+    std::atomic<int64_t> freeSample { 0 };
+    std::atomic<int64_t> oneshotRemaining { 0 };
 
     std::atomic<int> uiScaleMilli { 10000 };
     std::atomic<int> armedLayer { 0 };
@@ -76,6 +79,8 @@ private:
     juce::String slotA;
     juce::String slotB;
     juce::CriticalSection stateLock;
+    mutable juce::CriticalSection exportLock;
+    mutable juce::String exportError;
 
     std::atomic<double> displayedBpm { 120.0 };
     std::atomic<float> meterL { 0.0f };

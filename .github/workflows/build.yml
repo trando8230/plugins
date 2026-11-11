@@ -38,6 +38,29 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Universal architectures
+        if: runner.os == 'macOS'
+        run: |
+          source build/grokfx.env
+          ART="build/GrokFX_artefacts/Release"
+          fail=0
+          found=0
+          while IFS= read -r bin; do
+            if file "$bin" | grep -q "Mach-O"; then
+              archs=$(lipo -archs "$bin")
+              echo "$bin: $archs"
+              found=$((found + 1))
+              echo "$archs" | grep -q "arm64" || fail=1
+              echo "$archs" | grep -q "x86_64" || fail=1
+            fi
+          done < <(find \
+            "$ART/AU/${PRODUCT_NAME}.component" \
+            "$ART/VST3/${PRODUCT_NAME}.vst3" \
+            "$ART/Standalone/${PRODUCT_NAME}.app" \
+            -type f -path '*/Contents/MacOS/*')
+          test "$found" -ge 3
+          test "$fail" -eq 0
+
       - name: Unit tests
         working-directory: build
         run: ctest --output-on-failure --verbose
@@ -102,6 +125,8 @@ jobs:
             cp "$ART/Standalone/${PRODUCT_NAME}.exe" dist/
           fi
           cp packaging/INSTALL.txt dist/INSTALL.txt
+          cp LICENSE dist/LICENSE
+          cp licenses/OFL-Inter.txt dist/OFL-Inter.txt
           tar -a -cf "GrokFX-${{ runner.os }}.zip" -C dist .
 
       - name: Upload plugins

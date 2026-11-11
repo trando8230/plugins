@@ -377,6 +377,14 @@ void WaveformView::setPlayhead(float fraction, bool running)
     playing = running;
 }
 
+void WaveformView::setStatus(const juce::String& text)
+{
+    if (status == text)
+        return;
+    status = text;
+    repaint();
+}
+
 bool WaveformView::tick(float dt)
 {
     bool changed = playing;
@@ -445,7 +453,8 @@ void WaveformView::paint(juce::Graphics& g)
 
     g.setColour(juce::Colours::white.withAlpha(0.78f));
     g.setFont(Theme::font(Theme::typeCaption, true));
-    g.drawFittedText("Drag onto a track", getLocalBounds().removeFromBottom(18), juce::Justification::centred, 1);
+    auto caption = getLocalBounds().removeFromBottom(status.isNotEmpty() ? 32 : 18);
+    g.drawFittedText(status.isNotEmpty() ? status : "Drag onto a track", caption, juce::Justification::centred, 2);
 }
 
 void OutputMeter::setLevels(float left, float right)

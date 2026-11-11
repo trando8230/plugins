@@ -3,12 +3,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 namespace grokfx
 {
 namespace
 {
 
+// The second saw stays on the note. A 1.007 ratio pulled the fundamental
+// more than a cent off the key.
+constexpr float chorusRatio = 1.0f;
 constexpr float twoPi = 6.28318530717958647692f;
 constexpr float pi = 3.14159265358979323846f;
 
@@ -56,11 +60,6 @@ float wrapPhase(double phase) noexcept
     if (phase < 0.0)
         phase += 1.0;
     return static_cast<float>(phase);
-}
-
-float midiToHz(float midi) noexcept
-{
-    return 440.0f * std::pow(2.0f, (midi - 69.0f) / 12.0f);
 }
 
 int clampIndex(int value, int count) noexcept
@@ -257,7 +256,9 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     const float sr = static_cast<float>(sampleRate);
     const float intensity = unityMacro(model.intensity);
     const float brightness = std::pow(2.0f, (std::clamp(model.brightness, 0.0f, 1.0f) - 0.5f) * 2.0f);
-    const float tension = unityMacro(model.tension);
+    // Tension at the bottom of the knob does not sweep, so the note is the pitch.
+    // The default of 0.5 still passes through unityMacro and keeps the original sweep.
+    const float tension = model.tension <= 0.0f ? 0.0f : unityMacro(model.tension);
     const int seed = std::max(1, layer.seed);
     const float interval = model.keyMode == 0 ? 4.0f : 3.0f;
     const float rootMidi = 60.0f + static_cast<float>(model.keyRoot)
@@ -279,7 +280,7 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     }
 
     const float variation = (static_cast<float>(seed % 97) - 48.0f) * 0.00015f;
-    const float hz = std::clamp(midiToHz(semis) * (1.0f + variation), 20.0f, sr * 0.45f);
+    const float hz = std::clamp(noteToHz(semis) * (1.0f + variation), 20.0f, sr * 0.45f);
     const float dt = hz / sr;
 
     if (sampleIndex != voice.lastSample + 1)
@@ -298,7 +299,7 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     };
 
     const float fundamental = advance(0, hz);
-    const float detune = advance(1, hz * (1.007f + variation));
+    const float detune = advance(1, hz * (chorusRatio + variation));
     const float harmony = advance(2, hz * std::pow(2.0f, interval / 12.0f));
     const float noise = hashSigned(hashU(static_cast<uint32_t>(source + 1) ^ static_cast<uint32_t>(seed * 131u) ^ static_cast<uint32_t>(index * 17)));
 
@@ -331,7 +332,7 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     else
     {
         tone = 0.48f * sawSample(fundamental, dt)
-             + 0.28f * sawSample(detune, dt * 1.007f)
+             + 0.28f * sawSample(detune, dt * chorusRatio)
              + 0.18f * std::sin(twoPi * harmony);
     }
 
@@ -360,7 +361,7 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     }
     else if (type == static_cast<int>(FxType::subDrop))
     {
-        tone = std::sin(twoPi * advance(0, hz * 0.5f)) * 0.9f + noise * 0.08f;
+        tone = std::sin(twoPi * advance(3, hz * 0.5f)) * 0.9f + noise * 0.08f;
     }
 
     float envelope = motion;
@@ -397,7 +398,12 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
             rebuildHits(voice, layer, model, bpm);
             voice.hitHash = hash;
         }
-        const double beats = static_cast<double>(source) * sanitizeBpm(bpm) / (sampleRate * 60.0);
+        const double beatSpan = static_cast<double>(lengthBeats(model.length));
+        double beats = 0.0;
+        if (musical > 1 && source <= musical - 1)
+            beats = static_cast<double>(source) * beatSpan / static_cast<double>(musical - 1);
+        else if (source > musical - 1)
+            beats = beatSpan + static_cast<double>(source - (musical - 1)) * sanitizeBpm(bpm) / (sampleRate * 60.0);
         int hit = 0;
         while (hit + 1 < voice.hitCount && voice.hitBeats[hit + 1] <= beats)
             ++hit;
@@ -580,13 +586,14 @@ void Engine::process(float* const* channels, int numChannels, int numSamples, in
     }
 }
 
-void Engine::renderOffline(juce::AudioBuffer<float>& destination, const RenderModel& model,
-                           double bpm, double sampleRateIn)
+int64_t Engine::renderOffline(juce::AudioBuffer<float>& destination, const RenderModel& model,
+                                 double bpm, double sampleRateIn,
+                                 bool (*shouldStop)(void*), void* stopContext)
 {
     const double rate = sanitizeSampleRate(sampleRateIn);
     const double safeBpm = sanitizeBpm(bpm);
     const int64_t total64 = renderedSamples(model, safeBpm, rate);
-    const int total = static_cast<int>(std::min<int64_t>(total64, 8'000'000));
+    const int total = static_cast<int>(std::min<int64_t>(total64, std::numeric_limits<int>::max()));
     destination.setSize(2, std::max(1, total), false, true, true);
     destination.clear();
     prepare(rate);
@@ -595,6 +602,8 @@ void Engine::renderOffline(juce::AudioBuffer<float>& destination, const RenderMo
     int64_t rendered = 0;
     while (rendered < destination.getNumSamples())
     {
+        if (shouldStop != nullptr && shouldStop(stopContext))
+            return rendered;
         const int count = static_cast<int>(std::min<int64_t>(chunk, destination.getNumSamples() - rendered));
         float* pointers[2] = {
             destination.getWritePointer(0) + rendered,
@@ -603,6 +612,7 @@ void Engine::renderOffline(juce::AudioBuffer<float>& destination, const RenderMo
         process(pointers, 2, count, rendered, model, safeBpm);
         rendered += count;
     }
+    return rendered;
 }
 
 WavePeaks Engine::peaksFor(const juce::AudioBuffer<float>& buffer, int64_t musicalLength)

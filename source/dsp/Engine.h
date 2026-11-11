@@ -26,8 +26,11 @@ public:
     void process(float* const* channels, int numChannels, int numSamples, int64_t startSample,
                  const RenderModel& model, double bpm) noexcept;
 
-    void renderOffline(juce::AudioBuffer<float>& destination, const RenderModel& model,
-                       double bpm, double sampleRate);
+    // Returns samples actually rendered. shouldStop is polled between chunks
+    // so the editor can close without killing the peak thread.
+    int64_t renderOffline(juce::AudioBuffer<float>& destination, const RenderModel& model,
+                          double bpm, double sampleRate,
+                          bool (*shouldStop)(void*) = nullptr, void* stopContext = nullptr);
 
     static WavePeaks peaksFor(const juce::AudioBuffer<float>& buffer, int64_t musicalLength);
 
