@@ -48,16 +48,14 @@ public:
     OutputMeter& meter() { return levels; }
 
     GrokToggle preview { "Preview", "Audition the mix through the plugin output." };
-    GrokToggle follow { "Follow", "Start the phrase in time with the host bar while the transport is playing." };
     GrokButton newTake { "New take", "Roll a new variation seed on every unlocked layer." };
-    GrokButton randomize { "Randomize", "Randomize unlocked layers by the strength amount." };
     GrokKnob strength { "Strength", "How far Randomize moves each unlocked control." };
     GrokChoice bits { "Export bit depth. Drag writes this WAV format." };
     GrokChoice rate { "Export sample rate. Host uses the track rate at the moment you drag." };
     GrokToggle stems { "Stems", "Drag one WAV per audible layer instead of the full mix." };
     GrokKnob tail { "Tail", "How long the clip rings past the drop, in beats." };
     GrokKnob intensity { "Intensity", "Macro for level, drive and resonance." };
-    GrokKnob space { "Space", "Macro for width, reverb and delay." };
+    GrokKnob space { "Space", "Adjust the amount and size of the layer reverb." };
     GrokKnob brightness { "Bright", "Macro for brightness and filter cutoff." };
     GrokKnob tension { "Tension", "Macro for sweep depth and roll acceleration." };
     GrokKnob tone { "Tone", "Balance between the darker body and the bright edge." };

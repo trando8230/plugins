@@ -326,20 +326,11 @@ DropPanel::DropPanel(GrokFxAudioProcessor& processor, std::function<void()> drag
 
     addAndMakeVisible(preview);
     addAndMakeVisible(newTake);
-    addAndMakeVisible(follow);
     preview.bind(audio.apvts, "preview");
-    follow.bind(audio.apvts, "followHost");
     newTake.onClick = [this]() { audio.newTake(); };
 
-    details.addAndMakeVisible(randomize);
     details.addAndMakeVisible(strength);
     bindKnob(strength, "randomStrength");
-    randomize.onClick = [this]()
-    {
-        juce::Random random;
-        random.setSeedRandomly();
-        audio.randomizeLayers(random);
-    };
     bindChoice(bits, "exportBits");
     bindChoice(rate, "exportRate");
     bindToggle(stems, "exportStems");
@@ -385,8 +376,6 @@ void DropPanel::resized()
     preview.setBounds(buttons.removeFromLeft(buttons.getWidth() / 2).reduced(2, 0));
     newTake.setBounds(buttons.reduced(2, 0));
     area.removeFromTop(Theme::space1);
-    follow.setBounds(area.removeFromTop(32).reduced(2, 0));
-    area.removeFromTop(Theme::space1);
     viewport.setBounds(area);
 
     int y = Theme::space1;
@@ -397,7 +386,6 @@ void DropPanel::resized()
         y += height + Theme::space1;
         return row;
     };
-    randomize.setBounds(nextRow(36).reduced(2, 0));
     {
         auto row = nextRow(Theme::knobCellH);
         strength.setBounds(row.removeFromLeft(width / 2).reduced(2, 0));

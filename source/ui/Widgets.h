@@ -25,8 +25,11 @@ public:
     GrokKnob(juce::String labelText, juce::String tip);
     void bind(juce::AudioProcessorValueTreeState& state, const juce::String& paramId);
     bool tick(float dt);
+    static juce::String formatValue(double value, const juce::String& unit, bool pan);
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
 private:
+    juce::Rectangle<float> dialBounds() const;
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
@@ -34,6 +37,7 @@ private:
     void mouseExit(const juce::MouseEvent& event) override;
 
     juce::String label;
+    bool isPan = false;
     juce::RangedAudioParameter* parameter = nullptr;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     float shown = 0.0f;
@@ -66,6 +70,13 @@ class GrokButton : public juce::TextButton
 {
 public:
     GrokButton(juce::String labelText, juce::String tip);
+    void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+};
+
+class DiceButton : public GrokButton
+{
+public:
+    DiceButton();
     void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
 };
 

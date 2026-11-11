@@ -40,6 +40,8 @@ private:
     juce::Label logo;
     juce::Label company;
     juce::Label bpm;
+    grokfx::DiceButton randomize;
+    grokfx::GrokToggle follow { "Follow", "Start the phrase in time with the host bar while the transport is playing." };
     grokfx::GrokChoice key { "Song key. Every layer is tuned to this root." };
     grokfx::GrokChoice mode { "Major or minor. This sets the harmony interval." };
     grokfx::GrokChoice length { "Phrase length. The drop lands on the last sample before the tail." };

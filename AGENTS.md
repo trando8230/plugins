@@ -17,3 +17,6 @@
 - A failed stem write deletes that export and surfaces the error. Enforced by `Failed stem write surfaces an error`.
 - Closing the editor stops the peak render between chunks instead of killing the thread. Enforced by `Closing the editor stops the peak render between chunks`.
 - The release zip includes the full GNU AGPL-3.0 text and the Inter OFL, and the macOS job checks `lipo -archs` for arm64 and x86_64. Enforced by `Release package lists the AGPL and Inter OFL`.
+- Downlifters fade out over the musical section, and reversing one reverses that envelope. Enforced by `Downlifter fades while reverse makes it rise`.
+- Knob wheel input changes values only inside the drawn dial. Enforced by `Knob wheel responds only inside its circular dial`.
+- Knob readouts format each parameter in its displayed units. Enforced by `Knob values show meaningful units`.

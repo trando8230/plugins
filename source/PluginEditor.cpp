@@ -103,6 +103,8 @@ GrokFxAudioProcessorEditor::GrokFxAudioProcessorEditor(GrokFxAudioProcessor& pro
     bpm.setTooltip("Tempo from the host. Standalone and hosts without a playhead stay at 120 BPM.");
 
     content.addAndMakeVisible(logo);
+    content.addAndMakeVisible(randomize);
+    content.addAndMakeVisible(follow);
     content.addAndMakeVisible(company);
     content.addAndMakeVisible(bpm);
     content.addAndMakeVisible(key);
@@ -117,6 +119,13 @@ GrokFxAudioProcessorEditor::GrokFxAudioProcessorEditor(GrokFxAudioProcessor& pro
     addAndMakeVisible(content);
 
     key.bind(audio.apvts, "keyRoot");
+    follow.bind(audio.apvts, "followHost");
+    randomize.onClick = [this]()
+    {
+        juce::Random random;
+        random.setSeedRandomly();
+        audio.randomizeLayers(random);
+    };
     mode.bind(audio.apvts, "keyMode");
     length.bind(audio.apvts, "length");
     audio.apvts.state.addListener(this);
@@ -223,6 +232,7 @@ void GrokFxAudioProcessorEditor::resized()
 
     auto area = content.getLocalBounds().reduced(grokfx::Theme::space2);
     auto header = area.removeFromTop(grokfx::Theme::headerH);
+    randomize.setBounds(header.removeFromLeft(48).reduced(4, 16));
     auto brand = header.removeFromLeft(188);
     logo.setBounds(brand.removeFromTop(36));
     company.setBounds(brand);
@@ -230,6 +240,7 @@ void GrokFxAudioProcessorEditor::resized()
     redo.setBounds(header.removeFromRight(72).reduced(4, 16));
     undo.setBounds(header.removeFromRight(72).reduced(4, 16));
     bpm.setBounds(header.removeFromRight(88).reduced(4, 16));
+    follow.setBounds(header.removeFromRight(80).reduced(4, 16));
     length.setBounds(header.removeFromRight(128).reduced(4, 16));
     mode.setBounds(header.removeFromRight(104).reduced(4, 16));
     key.setBounds(header.removeFromRight(80).reduced(4, 16));

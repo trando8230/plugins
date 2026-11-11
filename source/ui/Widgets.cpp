@@ -63,6 +63,7 @@ GrokKnob::GrokKnob(juce::String labelText, juce::String tip)
 
 void GrokKnob::bind(juce::AudioProcessorValueTreeState& state, const juce::String& paramId)
 {
+    isPan = paramId.endsWith("_pan");
     parameter = dynamic_cast<juce::RangedAudioParameter*>(state.getParameter(paramId));
     attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(state, paramId, *this);
     if (parameter != nullptr)
@@ -70,6 +71,35 @@ void GrokKnob::bind(juce::AudioProcessorValueTreeState& state, const juce::Strin
     shown = static_cast<float>(valueToProportionOfLength(getValue()));
     if (getTooltip().isEmpty() && parameter != nullptr)
         setTooltip(parameter->getName(64));
+}
+
+juce::String GrokKnob::formatValue(double value, const juce::String& unit, bool pan)
+{
+    if (pan)
+    {
+        const int amount = juce::roundToInt(std::abs(value) * 100.0);
+        return amount == 0 ? "C" : juce::String(amount) + (value < 0.0 ? " L" : " R");
+    }
+    if (unit == "%") return juce::String(juce::roundToInt(value * 100.0)) + "%";
+    if (unit == "st") return juce::String(juce::roundToInt(value)) + " st";
+    if (unit == "ct") return juce::String(juce::roundToInt(value)) + " ct";
+    if (unit == "Hz") return juce::String(juce::roundToInt(value)) + " Hz";
+    return juce::String(value, 1) + (unit.isEmpty() ? "" : " " + unit);
+}
+
+juce::Rectangle<float> GrokKnob::dialBounds() const
+{
+    auto area = getLocalBounds().toFloat();
+    area.removeFromBottom(16.0f);
+    const float side = std::max(0.0f, std::min(area.getWidth(), area.getHeight()) - 4.0f);
+    return juce::Rectangle<float>(side, side).withCentre(area.getCentre());
+}
+
+void GrokKnob::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    const auto dial = dialBounds();
+    if (event.position.getDistanceFrom(dial.getCentre()) <= dial.getWidth() * 0.5f)
+        juce::Slider::mouseWheelMove(event, wheel);
 }
 
 bool GrokKnob::tick(float dt)
@@ -115,8 +145,7 @@ void GrokKnob::paint(juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat();
     auto labelArea = area.removeFromBottom(16.0f);
-    const float side = std::min(area.getWidth(), area.getHeight()) - 4.0f;
-    auto dial = juce::Rectangle<float>(side, side).withCentre(area.getCentre());
+    auto dial = dialBounds();
     const float radius = dial.getWidth() * 0.5f;
     const auto centre = dial.getCentre();
     g.setColour(Theme::meterTrack());
@@ -135,26 +164,14 @@ void GrokKnob::paint(juce::Graphics& g)
     g.setColour(Theme::accent());
     g.strokePath(value, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     g.setColour(Theme::text());
-    g.drawLine(centre.x, centre.y,
-               centre.x + std::sin(angle) * (radius - 8.0f),
-               centre.y - std::cos(angle) * (radius - 8.0f), 2.0f);
+    g.setFont(Theme::font(Theme::typeCaption, true));
+    const auto text = formatValue(getValue(), parameter != nullptr ? parameter->getLabel() : juce::String(), isPan);
+    g.drawFittedText(text, dial.reduced(5.0f).toNearestInt(), juce::Justification::centred, 1);
 
     g.setColour(Theme::textMuted());
     g.setFont(Theme::font(Theme::typeCaption));
     g.drawFittedText(label, labelArea.toNearestInt(), juce::Justification::centred, 1);
 
-    if (isMouseButtonDown() || hover > 0.2f)
-    {
-        juce::String text = parameter != nullptr ? parameter->getCurrentValueAsText() : juce::String(getValue(), 2);
-        if (parameter != nullptr && parameter->getLabel().isNotEmpty())
-            text << " " << parameter->getLabel();
-        auto bubble = juce::Rectangle<float>(0.0f, 0.0f, 72.0f, 18.0f).withCentre({ centre.x, dial.getY() - 2.0f });
-        g.setColour(Theme::text().withAlpha(0.92f));
-        g.fillRoundedRectangle(bubble, Theme::radiusS);
-        g.setColour(juce::Colours::white);
-        g.setFont(Theme::font(Theme::typeCaption));
-        g.drawFittedText(text, bubble.toNearestInt(), juce::Justification::centred, 1);
-    }
 }
 
 GrokChoice::GrokChoice(juce::String tip)
@@ -230,6 +247,26 @@ void GrokButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
     g.setColour(on || down || highlighted ? juce::Colours::white : Theme::text());
     g.setFont(Theme::font(Theme::typeBody, true));
     g.drawFittedText(getButtonText(), getLocalBounds(), juce::Justification::centred, 1);
+}
+
+DiceButton::DiceButton() : GrokButton({}, "Randomize unlocked layers by the strength amount.") {}
+
+void DiceButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
+{
+    GrokButton::paintButton(g, highlighted, down);
+    const auto icon = getLocalBounds().toFloat().reduced(8.0f);
+    const float side = std::min(icon.getWidth(), icon.getHeight());
+    const auto die = juce::Rectangle<float>(side, side).withCentre(icon.getCentre()).reduced(1.0f);
+    g.setColour(highlighted || down ? juce::Colours::white : Theme::text());
+    juce::Path outline;
+    outline.addRoundedRectangle(die, 3.0f);
+    g.strokePath(outline, juce::PathStrokeType(1.5f));
+    juce::Path dots;
+    const float dot = std::max(1.5f, side * 0.1f);
+    for (int i = 0; i < 3; ++i)
+        dots.addEllipse(die.getX() + die.getWidth() * (0.25f + 0.25f * i) - dot * 0.5f,
+                        die.getY() + die.getHeight() * (0.25f + 0.25f * i) - dot * 0.5f, dot, dot);
+    g.fillPath(dots);
 }
 
 SoundPad::SoundPad(int typeIndex, std::function<void(int)> onPick)

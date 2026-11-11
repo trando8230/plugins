@@ -365,7 +365,9 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     }
 
     float envelope = motion;
-    if (type == static_cast<int>(FxType::impact))
+    if (type == static_cast<int>(FxType::downlifter))
+        envelope = 1.0f - motion;
+    else if (type == static_cast<int>(FxType::impact))
     {
         const float attackSamples = sr * 0.035f;
         if (source >= musical - 1)
@@ -427,7 +429,8 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     voice.tilt = flushDenormal(voice.tilt + high * 0.04f);
     tone += (high - voice.tilt) * (std::clamp(model.character, 0.0f, 1.0f) - 0.5f) * 1.4f;
 
-    const float cutoff = (layer.cutoffStart + (layer.cutoffEnd - layer.cutoffStart) * motion) * brightness;
+    const float filterMotion = type == static_cast<int>(FxType::downlifter) ? 1.0f - motion : motion;
+    const float cutoff = (layer.cutoffStart + (layer.cutoffEnd - layer.cutoffStart) * filterMotion) * brightness;
     const float resonance = std::clamp(layer.resonance * intensity, 0.0f, 0.96f);
     if (layer.filterType != static_cast<int>(FilterType::off))
         tone = filterSample(voice.svf1, voice.svf2, tone, cutoff, resonance, sr, layer.filterType);
@@ -483,7 +486,7 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
         dryR = filterSample(masterSvfR1, masterSvfR2, dryR, cutoff, model.masterResonance, sr, model.masterFilter);
     }
 
-    const float masterWidth = std::clamp(model.masterWidth, 0.0f, 1.0f) * space;
+    const float masterWidth = std::clamp(model.masterWidth, 0.0f, 1.0f);
     const float mid = 0.5f * (dryL + dryR);
     const float side = 0.5f * (dryL - dryR) * (masterWidth * 2.0f);
     dryL = mid + side;
@@ -525,7 +528,7 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
         delayOutL = delayL[static_cast<size_t>(read)];
         delayOutR = delayR[static_cast<size_t>(readR)];
         const float feedback = std::clamp(model.delayFeedback, 0.0f, 0.85f);
-        const float excited = sendD * std::clamp(model.delayAmount, 0.0f, 1.0f) * space;
+        const float excited = sendD * std::clamp(model.delayAmount, 0.0f, 1.0f);
         delayL[static_cast<size_t>(delayIndex)] = flushDenormal(excited + delayOutL * feedback);
         delayR[static_cast<size_t>(delayIndex)] = flushDenormal(excited + delayOutR * feedback);
         delayIndex = (delayIndex + 1) % size;

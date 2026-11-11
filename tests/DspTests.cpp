@@ -429,3 +429,24 @@ TEST_CASE("Required parameters exist with host-facing names", "[parameters]")
             REQUIRE(parameter->getName(80).startsWith("Layer " + juce::String(layer + 1)));
         }
 }
+
+TEST_CASE("Downlifter fades while reverse makes it rise", "[downlifter]")
+{
+    auto plugin = makePlugin();
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    setReal(*plugin, "l1_type", static_cast<float>(grokfx::FxType::downlifter));
+    setReal(*plugin, "l1_reverbSend", 0.0f);
+    setReal(*plugin, "l1_delaySend", 0.0f);
+    setReal(*plugin, "l1_shape", 0.0f);
+    for (int reverse = 0; reverse < 2; ++reverse)
+    {
+        setReal(*plugin, "l1_reverse", static_cast<float>(reverse));
+        juce::AudioBuffer<float> rendered;
+        plugin->renderMix(rendered, 120.0, 48000.0);
+        const int window = rendered.getNumSamples() / 5;
+        const auto first = rendered.getRMSLevel(0, window / 2, window);
+        const auto last = rendered.getRMSLevel(0, rendered.getNumSamples() - window * 3 / 2, window);
+        if (reverse == 0) REQUIRE(first > last * 1.5f);
+        else REQUIRE(last > first * 1.5f);
+    }
+}
