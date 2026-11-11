@@ -1,0 +1,8 @@
+build/
+Builds/
+.cache/
+.env
+*.user
+.DS_Store
+screenshots/
+compile_commands.json

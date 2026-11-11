@@ -1,0 +1,33 @@
+#pragma once
+
+// Generated from the identity block at the top of CMakeLists.txt.
+// Do not hand-edit. Hosts identify a saved set by these codes.
+namespace grokfx
+{
+inline constexpr const char* productName = "@GROKFX_PRODUCT_NAME@";
+inline constexpr const char* manufacturer = "@GROKFX_MANUFACTURER@";
+inline constexpr const char* bundleId = "@GROKFX_BUNDLE_ID@";
+inline constexpr const char* pluginCode = "@GROKFX_PLUGIN_CODE@";
+inline constexpr const char* manufacturerCode = "@GROKFX_MANUFACTURER_CODE@";
+
+constexpr int textLength(const char* text)
+{
+    int count = 0;
+    while (text[count] != '\0')
+        ++count;
+    return count;
+}
+
+constexpr bool hasUpper(const char* text)
+{
+    for (int i = 0; text[i] != '\0'; ++i)
+        if (text[i] >= 'A' && text[i] <= 'Z')
+            return true;
+    return false;
+}
+
+static_assert(textLength(pluginCode) == 4, "PLUGIN_CODE must be 4 characters");
+static_assert(textLength(manufacturerCode) == 4, "PLUGIN_MANUFACTURER_CODE must be 4 characters");
+static_assert(hasUpper(pluginCode), "PLUGIN_CODE needs an uppercase letter");
+static_assert(hasUpper(manufacturerCode), "PLUGIN_MANUFACTURER_CODE needs an uppercase letter");
+} // namespace grokfx

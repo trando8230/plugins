@@ -1,0 +1,45 @@
+Grok FX by Rando Audio
+======================
+
+This build is unsigned. macOS will ask you to approve it once.
+
+macOS
+-----
+VST3
+  Copy "Grok FX.vst3" to:
+    ~/Library/Audio/Plug-Ins/VST3/
+  or, for every user on the machine:
+    /Library/Audio/Plug-Ins/VST3/
+
+Audio Unit
+  Copy "Grok FX.component" to:
+    ~/Library/Audio/Plug-Ins/Components/
+  or:
+    /Library/Audio/Plug-Ins/Components/
+
+Standalone
+  Open "Grok FX.app".
+
+Approve an unsigned plugin
+  1. Try to load Grok FX once (Ableton, or by opening the standalone).
+  2. If macOS blocks it, open System Settings > Privacy & Security.
+  3. Under Security, find the Grok FX message and choose Open Anyway.
+  4. Confirm Open. You only need to do this once for each format you use.
+
+Windows
+-------
+VST3
+  Copy "Grok FX.vst3" to:
+    C:\Program Files\Common Files\VST3\
+
+Standalone
+  Run "Grok FX.exe".
+
+Ableton Live
+------------
+  1. Put the plugin in the folder above.
+  2. Preferences > Plug-Ins > Rescan (or restart Live).
+  3. Add Grok FX as an instrument on a MIDI track.
+  4. Press Preview, or play a MIDI note, to hear the transition.
+  5. Drag the waveform card onto an audio track.
+     The clip is a stereo WAV that ends on the drop.
