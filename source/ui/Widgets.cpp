@@ -300,60 +300,38 @@ bool SoundPad::tick(float dt)
 
 void SoundPad::drawIcon(juce::Graphics& g, juce::Rectangle<float> area) const
 {
-    g.setColour(selected ? Theme::onAccent() : Theme::accent());
-    juce::Path path;
-    const float left = area.getX();
-    const float right = area.getRight();
-    const float top = area.getY();
-    const float bottom = area.getBottom();
-    const float mid = area.getCentreY();
-    if (type == 0)
-        path.startNewSubPath(left, bottom), path.lineTo(right, top);
-    else if (type == 1)
-        path.startNewSubPath(left, top), path.lineTo(right, bottom);
-    else if (type == 2)
+    const auto ink = selected ? Theme::onAccent() : Theme::accent();
+    const float middle = area.getCentreY();
+    const float maxHeight = area.getHeight() * 0.46f;
+    g.setColour(ink.withAlpha(0.2f));
+    g.drawHorizontalLine(juce::roundToInt(middle), area.getX(), area.getRight());
+
+    juce::Path waveform;
+    constexpr int bars = 32;
+    for (int i = 0; i < bars; ++i)
     {
-        path.startNewSubPath(left, mid);
-        path.lineTo(right - 8.0f, mid);
-        path.lineTo(right - 4.0f, top);
-        path.lineTo(right, mid);
-    }
-    else if (type == 3)
-    {
-        for (int i = 0; i < 6; ++i)
+        const float t = static_cast<float>(i) / static_cast<float>(bars - 1);
+        const float variation = 0.32f + 0.68f * std::abs(std::sin(t * 31.0f + std::sin(t * 13.0f)));
+        float envelope = 0.65f;
+        switch (type)
         {
-            const float x = left + (right - left) * static_cast<float>(i) / 5.0f;
-            const float h = 4.0f + static_cast<float>(i) * 2.0f;
-            g.fillRoundedRectangle(x, bottom - h, 3.0f, h, 1.0f);
+            case 0: envelope = 0.12f + 0.88f * t; break;
+            case 1: envelope = 1.0f - 0.88f * t; break;
+            case 2: envelope = std::exp(-t * 5.0f); break;
+            case 3: envelope = (0.25f + 0.75f * t) * (0.25f + 0.75f * std::abs(std::sin(t * (12.0f + t * 30.0f)))); break;
+            case 4: envelope = 0.48f + 0.35f * variation; break;
+            case 5: envelope = 0.1f + 0.9f * t * t; break;
+            case 6: envelope = std::exp(-t * 2.5f) * (0.5f + 0.5f * std::abs(std::sin(t * (27.0f - 13.0f * t)))); break;
+            default: break;
         }
-        return;
+        const float x = area.getX() + t * area.getWidth();
+        const float height = std::max(0.8f, maxHeight * envelope * variation);
+        waveform.startNewSubPath(x, middle - height);
+        waveform.lineTo(x, middle + height);
     }
-    else if (type == 4)
-    {
-        for (int i = 0; i < 10; ++i)
-        {
-            const float x = left + (right - left) * static_cast<float>(i) / 9.0f;
-            const float h = 3.0f + static_cast<float>((i * 17) % 9);
-            g.fillRect(x, mid - h * 0.5f, 2.0f, h);
-        }
-        return;
-    }
-    else if (type == 5)
-    {
-        path.startNewSubPath(left, bottom);
-        path.quadraticTo(area.getCentreX(), top, right, mid);
-    }
-    else
-    {
-        path.startNewSubPath(left, mid);
-        for (int i = 1; i <= 12; ++i)
-        {
-            const float x = left + (right - left) * static_cast<float>(i) / 12.0f;
-            const float amp = (bottom - top) * 0.5f * static_cast<float>(i) / 12.0f;
-            path.lineTo(x, mid + ((i % 2) == 0 ? amp : -amp));
-        }
-    }
-    g.strokePath(path, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour(ink);
+    g.strokePath(waveform, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded));
 }
 
 void SoundPad::paint(juce::Graphics& g)
