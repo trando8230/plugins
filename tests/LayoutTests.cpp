@@ -51,3 +51,26 @@ TEST_CASE("Mix and drop controls fit without scrolling", "[layout]")
     check(check, mix);
     check(check, drop);
 }
+
+TEST_CASE("Waveform handles change trim without starting a drag", "[layout][trim]")
+{
+    grokfx::WaveformView wave;
+    wave.setBounds(0, 0, 220, 100);
+    float start = 0.0f, end = 1.0f;
+    bool externalDrag = false;
+    wave.onTrimChange = [&](float a, float b) { start = a; end = b; };
+    wave.onExternalDrag = [&]() { externalDrag = true; };
+    const auto source = juce::Desktop::getInstance().getMainMouseSource();
+    const auto time = juce::Time::getCurrentTime();
+    const juce::Point<float> down(10.0f, 50.0f), target(60.0f, 50.0f);
+    const juce::MouseEvent downEvent(source, down, juce::ModifierKeys::leftButtonModifier,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &wave, &wave, time, down, time, 1, false);
+    const juce::MouseEvent dragEvent(source, target, juce::ModifierKeys::leftButtonModifier,
+        0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &wave, &wave, time, down, time, 1, true);
+    wave.mouseDown(downEvent);
+    wave.mouseDrag(dragEvent);
+    wave.mouseUp(dragEvent);
+    REQUIRE(start == Catch::Approx(0.25f));
+    REQUIRE(end == Catch::Approx(1.0f));
+    REQUIRE_FALSE(externalDrag);
+}

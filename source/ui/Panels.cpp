@@ -341,8 +341,18 @@ DropPanel::DropPanel(GrokFxAudioProcessor& processor, std::function<void()> drag
     addAndMakeVisible(wave);
     addAndMakeVisible(levels);
     wave.onExternalDrag = std::move(dragFiles);
-    wave.setTooltip("Click to audition from that point or drag the audio onto a track.");
+    wave.setTooltip("Drag the handles to trim; click to audition, or drag the audio onto a track.");
     wave.onPreviewClick = [this](float fraction) { audio.togglePreviewAt(fraction); };
+    wave.onTrimChange = [this](float start, float end)
+    {
+        for (const auto& update : { std::pair { "trimStart", start }, std::pair { "trimEnd", end } })
+            if (auto* parameter = audio.apvts.getParameter(update.first))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost(update.second);
+                parameter->endChangeGesture();
+            }
+    };
     levels.setTooltip("Shows the left and right output levels.");
 
     auto bindKnob = [this](GrokKnob& knob, const char* id)
@@ -473,6 +483,8 @@ void DropPanel::resized()
 void DropPanel::refreshTransport(double bpmValue, bool)
 {
     bpm.setText(juce::String(juce::roundToInt(bpmValue)) + " BPM", juce::dontSendNotification);
+    const auto model = audio.readModel();
+    wave.setTrim(model.trimStart, model.trimEnd);
 }
 
 } // namespace grokfx

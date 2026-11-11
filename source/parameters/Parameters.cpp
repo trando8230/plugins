@@ -138,6 +138,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addChoice(*exportGroup, "exportBits", "Export Bit Depth", { "16-bit", "24-bit", "32-bit float" }, 1);
     addChoice(*exportGroup, "exportRate", "Export Sample Rate", { "Host", "44.1 kHz", "48 kHz", "96 kHz" }, 0);
     addBool(*exportGroup, "exportStems", "Export Stems", false);
+    addFloat(*exportGroup, "trimStart", "Export Start", Range(0.0f, 1.0f), 0.0f, "%");
+    addFloat(*exportGroup, "trimEnd", "Export End", Range(0.0f, 1.0f), 1.0f, "%");
     layout.add(std::move(exportGroup));
 
     return layout;

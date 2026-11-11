@@ -63,6 +63,8 @@ GrokKnob::GrokKnob(juce::String labelText, juce::String tip)
 
 void GrokKnob::bind(juce::AudioProcessorValueTreeState& state, const juce::String& paramId)
 {
+    boundState = &state;
+    parameterId = paramId;
     isPan = paramId.endsWith("_pan");
     parameter = dynamic_cast<juce::RangedAudioParameter*>(state.getParameter(paramId));
     attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(state, paramId, *this);
@@ -71,6 +73,14 @@ void GrokKnob::bind(juce::AudioProcessorValueTreeState& state, const juce::Strin
     shown = static_cast<float>(valueToProportionOfLength(getValue()));
     if (getTooltip().isEmpty() && parameter != nullptr)
         setTooltip(parameter->getName(64));
+    baseTooltip = getTooltip();
+    shownLocked = isLocked();
+    setTooltip(baseTooltip + (shownLocked ? " Right-click to unlock." : " Right-click to lock against Randomize."));
+}
+
+bool GrokKnob::isLocked() const
+{
+    return boundState != nullptr && static_cast<bool>(boundState->state.getProperty("lock_" + parameterId, false));
 }
 
 juce::String GrokKnob::formatValue(double value, const juce::String& unit, bool pan)
@@ -107,9 +117,15 @@ bool GrokKnob::tick(float dt)
     const float target = static_cast<float>(valueToProportionOfLength(getValue()));
     const float next = approach(shown, target, dt);
     const float nextHover = approach(hover, hoverTarget, dt);
-    const bool changed = next != shown || nextHover != hover;
+    const bool locked = isLocked();
+    const bool changed = next != shown || nextHover != hover || locked != shownLocked;
     shown = next;
     hover = nextHover;
+    if (shownLocked != locked)
+    {
+        shownLocked = locked;
+        setTooltip(baseTooltip + (locked ? " Right-click to unlock." : " Right-click to lock against Randomize."));
+    }
     if (changed)
         repaint();
     return changed;
@@ -117,13 +133,32 @@ bool GrokKnob::tick(float dt)
 
 void GrokKnob::mouseDown(const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu() && boundState != nullptr)
+    {
+        togglingLock = true;
+        boundState->state.setProperty("lock_" + parameterId, !isLocked(), boundState->undoManager);
+        repaint();
+        return;
+    }
     const bool fine = event.mods.isShiftDown() || event.mods.isCommandDown();
     setMouseDragSensitivity(fine ? 980 : 220);
     juce::Slider::mouseDown(event);
 }
 
+void GrokKnob::mouseUp(const juce::MouseEvent& event)
+{
+    if (togglingLock)
+    {
+        togglingLock = false;
+        return;
+    }
+    juce::Slider::mouseUp(event);
+}
+
 void GrokKnob::mouseDrag(const juce::MouseEvent& event)
 {
+    if (togglingLock || event.mods.isPopupMenu())
+        return;
     const bool fine = event.mods.isShiftDown() || event.mods.isCommandDown();
     setMouseDragSensitivity(fine ? 980 : 220);
     juce::Slider::mouseDrag(event);
@@ -167,6 +202,15 @@ void GrokKnob::paint(juce::Graphics& g)
     g.setFont(Theme::font(Theme::typeCaption, true));
     const auto text = formatValue(getValue(), parameter != nullptr ? parameter->getLabel() : juce::String(), isPan);
     g.drawFittedText(text, dial.reduced(5.0f).toNearestInt(), juce::Justification::centred, 1);
+    if (isLocked())
+    {
+        auto mark = dial.removeFromTop(11.0f).removeFromRight(11.0f).reduced(1.0f);
+        g.setColour(Theme::accent());
+        juce::Path lock;
+        lock.addRoundedRectangle(mark.getX() + 2.0f, mark.getY() + 4.0f, 6.0f, 5.0f, 1.0f);
+        g.fillPath(lock);
+        g.drawRoundedRectangle(mark.getX() + 3.0f, mark.getY() + 1.0f, 4.0f, 5.0f, 2.0f, 1.0f);
+    }
 
     g.setColour(Theme::textMuted());
     g.setFont(Theme::font(Theme::typeCaption));
@@ -400,6 +444,13 @@ void WaveformView::setStatus(const juce::String& text)
     repaint();
 }
 
+void WaveformView::setTrim(float start, float end)
+{
+    trimStart = std::clamp(start, 0.0f, 1.0f);
+    trimEnd = std::clamp(end, trimStart, 1.0f);
+    repaint();
+}
+
 bool WaveformView::tick(float dt)
 {
     bool changed = playing;
@@ -413,10 +464,30 @@ bool WaveformView::tick(float dt)
     return changed;
 }
 
-void WaveformView::mouseDown(const juce::MouseEvent&) { dragArmed = true; }
+void WaveformView::mouseDown(const juce::MouseEvent& event)
+{
+    const auto plot = getLocalBounds().toFloat().reduced(10.0f, 12.0f);
+    const float startX = plot.getX() + plot.getWidth() * trimStart;
+    const float endX = plot.getX() + plot.getWidth() * trimEnd;
+    trimDrag = std::abs(event.position.x - startX) < 8.0f ? 1
+             : std::abs(event.position.x - endX) < 8.0f ? 2 : 0;
+    dragArmed = trimDrag == 0;
+}
 
 void WaveformView::mouseDrag(const juce::MouseEvent& event)
 {
+    if (trimDrag != 0)
+    {
+        const auto plot = getLocalBounds().toFloat().reduced(10.0f, 12.0f);
+        if (plot.getWidth() <= 0.0f)
+            return;
+        const float position = std::clamp((event.position.x - plot.getX()) / plot.getWidth(), 0.0f, 1.0f);
+        if (trimDrag == 1) trimStart = std::min(position, trimEnd - 0.001f);
+        else trimEnd = std::max(position, trimStart + 0.001f);
+        if (onTrimChange != nullptr) onTrimChange(trimStart, trimEnd);
+        repaint();
+        return;
+    }
     if (dragArmed && event.getDistanceFromDragStart() > 8 && onExternalDrag != nullptr)
     {
         dragArmed = false;
@@ -433,6 +504,7 @@ void WaveformView::mouseUp(const juce::MouseEvent& event)
             onPreviewClick(std::clamp((event.position.x - plot.getX()) / plot.getWidth(), 0.0f, 1.0f));
     }
     dragArmed = false;
+    trimDrag = 0;
 }
 
 void WaveformView::paint(juce::Graphics& g)
@@ -441,6 +513,8 @@ void WaveformView::paint(juce::Graphics& g)
     g.setColour(Theme::backgroundBottom());
     g.fillRoundedRectangle(bounds, Theme::radiusM);
     auto plot = bounds.reduced(10.0f, 12.0f);
+    const float startX = plot.getX() + plot.getWidth() * trimStart;
+    const float endX = plot.getX() + plot.getWidth() * trimEnd;
     g.setColour(juce::Colours::white.withAlpha(0.16f));
     g.drawLine(plot.getX(), plot.getCentreY(), plot.getRight(), plot.getCentreY(), 1.0f);
 
@@ -464,6 +538,12 @@ void WaveformView::paint(juce::Graphics& g)
     wave.closeSubPath();
     g.setColour(Theme::accent().withAlpha(0.85f));
     g.fillPath(wave);
+    g.setColour(juce::Colours::black.withAlpha(0.55f));
+    g.fillRect(plot.getX(), plot.getY(), std::max(0.0f, startX - plot.getX()), plot.getHeight());
+    g.fillRect(endX, plot.getY(), std::max(0.0f, plot.getRight() - endX), plot.getHeight());
+    g.setColour(Theme::accent());
+    g.drawVerticalLine(juce::roundToInt(startX), plot.getY(), plot.getBottom());
+    g.drawVerticalLine(juce::roundToInt(endX), plot.getY(), plot.getBottom());
 
     const float dropX = plot.getX() + plot.getWidth() * drop;
     g.setColour(juce::Colours::white.withAlpha(0.85f));

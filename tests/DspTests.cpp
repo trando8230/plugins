@@ -2,6 +2,7 @@
 #include "dsp/Model.h"
 #include "dsp/WavExport.h"
 #include "parameters/Parameters.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 #include <cstring>
 #include <limits>
@@ -497,4 +498,30 @@ TEST_CASE("Space at zero removes reverb without changing the dry sound", "[rever
     for (int channel = 0; channel < 2; ++channel)
         for (int sample = 0; sample < sent.getNumSamples(); ++sample)
             REQUIRE(sent.getSample(channel, sample) == Catch::Approx(noSend.getSample(channel, sample)).margin(0.000001f));
+}
+
+TEST_CASE("Exported waveform uses the selected trim region", "[export][trim]")
+{
+    auto plugin = makePlugin();
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    setReal(*plugin, "trimStart", 0.25f);
+    setReal(*plugin, "trimEnd", 0.75f);
+    const auto directory = juce::File::getSpecialLocation(juce::File::tempDirectory)
+        .getNonexistentChildFile("grokfx-trim-test", {}, false);
+    const auto files = plugin->renderExportFiles(directory, 48000.0);
+    REQUIRE(files.size() == 1);
+    juce::WavAudioFormat format;
+    auto stream = std::make_unique<juce::FileInputStream>(files[0]);
+    std::unique_ptr<juce::AudioFormatReader> reader(format.createReaderFor(stream.release(), true));
+    REQUIRE(reader != nullptr);
+    REQUIRE(reader->lengthInSamples == 12000);
+    juce::AudioBuffer<float> trimmed(2, 12000);
+    REQUIRE(reader->read(&trimmed, 0, 12000, 0, true, true));
+    juce::AudioBuffer<float> full;
+    plugin->renderMix(full, 120.0, 48000.0);
+    for (int sample = 0; sample < 12000; sample += 97)
+        REQUIRE(trimmed.getSample(0, sample) == Catch::Approx(full.getSample(0, sample + 6000)).margin(0.00001f));
+    reader.reset();
+    REQUIRE(files[0].deleteFile());
+    REQUIRE(directory.deleteFile());
 }

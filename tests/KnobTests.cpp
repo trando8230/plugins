@@ -32,3 +32,30 @@ TEST_CASE("Knob wheel responds only inside its circular dial", "[knob]")
     knob.mouseWheelMove(eventAt({ 40.0f, 32.0f }), wheel);
     REQUIRE(knob.getValue() != 50.0);
 }
+
+TEST_CASE("Right click locks one knob against randomization and saves it", "[knob][lock]")
+{
+    auto plugin = makePlugin();
+    grokfx::GrokKnob knob("Pitch", "Pitch in semitones.");
+    knob.bind(plugin->apvts, "l1_pitch");
+    const auto source = juce::Desktop::getInstance().getMainMouseSource();
+    const auto time = juce::Time::getCurrentTime();
+    const juce::Point<float> point(20.0f, 20.0f);
+    const juce::MouseEvent click(source, point, juce::ModifierKeys::rightButtonModifier,
+                                 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &knob, &knob, time, point, time, 1, false);
+    static_cast<juce::Slider&>(knob).mouseDown(click);
+    REQUIRE(knob.isLocked());
+    setReal(*plugin, "l1_pitch", 7.0f);
+    setReal(*plugin, "l1_pan", 0.0f);
+    juce::Random random(1234);
+    plugin->randomizeLayers(random);
+    REQUIRE(getReal(*plugin, "l1_pitch") == Catch::Approx(7.0f));
+    REQUIRE(getReal(*plugin, "l1_pan") != Catch::Approx(0.0f));
+    juce::MemoryBlock state;
+    plugin->getStateInformation(state);
+    auto restored = makePlugin();
+    restored->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    REQUIRE(static_cast<bool>(restored->apvts.state.getProperty("lock_l1_pitch", false)));
+    static_cast<juce::Slider&>(knob).mouseDown(click);
+    REQUIRE_FALSE(knob.isLocked());
+}

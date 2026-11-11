@@ -330,6 +330,8 @@ struct RenderModel
     int masterFilter = 0;
     int exportBits = 1; // 0=16, 1=24, 2=32f
     int exportRate = 0; // 0=host, 1=44.1, 2=48, 3=96
+    float trimStart = 0.0f;
+    float trimEnd = 1.0f;
     float character = 0.5f;
     float intensity = 0.5f;
     float space = 0.5f;

@@ -110,6 +110,8 @@ struct GrokFxAudioProcessor::Raw
     std::atomic<float>* exportBits = nullptr;
     std::atomic<float>* exportRate = nullptr;
     std::atomic<float>* exportStems = nullptr;
+    std::atomic<float>* trimStart = nullptr;
+    std::atomic<float>* trimEnd = nullptr;
 };
 
 GrokFxAudioProcessor::GrokFxAudioProcessor()
@@ -190,6 +192,8 @@ GrokFxAudioProcessor::GrokFxAudioProcessor()
     raw->exportBits = bind("exportBits");
     raw->exportRate = bind("exportRate");
     raw->exportStems = bind("exportStems");
+    raw->trimStart = bind("trimStart");
+    raw->trimEnd = bind("trimEnd");
     const auto defaultFile = defaultPresetFile();
     if (defaultFile.existsAsFile())
         juce::ignoreUnused(loadPreset(defaultFile));
@@ -341,6 +345,8 @@ grokfx::RenderModel GrokFxAudioProcessor::readModel() const noexcept
     model.exportBits = loadInt(raw->exportBits, 1);
     model.exportRate = loadInt(raw->exportRate, 0);
     model.exportStems = loadBool(raw->exportStems);
+    model.trimStart = std::clamp(loadRaw(raw->trimStart), 0.0f, 1.0f);
+    model.trimEnd = std::clamp(loadRaw(raw->trimEnd), model.trimStart, 1.0f);
     return model;
 }
 
@@ -636,7 +642,10 @@ void GrokFxAudioProcessor::randomizeLayers(juce::Random& random)
             continue;
         for (const char* suffix : grokfx::randomizableSuffixes)
         {
-            auto* parameter = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(grokfx::layerParam(layer, suffix)));
+            const auto parameterId = grokfx::layerParam(layer, suffix);
+            if (static_cast<bool>(apvts.state.getProperty("lock_" + parameterId, false)))
+                continue;
+            auto* parameter = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(parameterId));
             if (parameter == nullptr)
                 continue;
             const float mixed = grokfx::blendNormalized(parameter->getValue(), random.nextFloat(), strength);
@@ -742,8 +751,13 @@ juce::Array<juce::File> GrokFxAudioProcessor::renderExportFiles(const juce::File
         const auto written = local.renderOffline(buffer, renderModel, bpm, rate, shouldStop, stopContext);
         if (shouldStop != nullptr && shouldStop(stopContext) && written < buffer.getNumSamples())
             return false;
+        const int totalSamples = buffer.getNumSamples();
+        const int first = juce::jlimit(0, totalSamples - 1, juce::roundToInt(model.trimStart * static_cast<float>(totalSamples)));
+        const int end = juce::jlimit(first + 1, totalSamples, juce::roundToInt(model.trimEnd * static_cast<float>(totalSamples)));
+        float* channels[] = { buffer.getWritePointer(0, first), buffer.getWritePointer(1, first) };
+        juce::AudioBuffer<float> trimmed(channels, 2, end - first);
         const auto file = directory.getChildFile(grokfx::exportFileName(model, bpm, stemLayer));
-        if (!grokfx::writeStereoWav(file, buffer, rate, format))
+        if (!grokfx::writeStereoWav(file, trimmed, rate, format))
         {
             abandon("Couldn't write " + file.getFileName());
             return false;

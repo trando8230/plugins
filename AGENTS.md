@@ -25,3 +25,5 @@
 - Presets restore parameter state and reject invalid files without changing it. Enforced by `Presets round-trip and reject invalid files`.
 - Clicking the waveform starts preview at the chosen point and clicking again stops it; free preview turns off host following. Enforced by `Waveform preview starts at the clicked position and stops`.
 - Space at zero removes the reverb send while preserving the dry signal. Enforced by `Space at zero removes reverb without changing the dry sound`.
+- Right-clicking a knob toggles a saved lock that protects its value from Randomize. Enforced by `Right click locks one knob against randomization and saves it`.
+- Exported audio uses the selected output waveform region. Enforced by `Exported waveform uses the selected trim region`.
