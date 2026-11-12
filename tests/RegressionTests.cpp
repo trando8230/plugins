@@ -676,3 +676,38 @@ TEST_CASE("Presets round-trip and reject invalid files", "[preset]")
     REQUIRE(getReal(*plugin, "l1_pitch") == Catch::Approx(7.0f));
     REQUIRE(file.deleteFile());
 }
+
+TEST_CASE("Old sessions reset newly added controls to their defaults", "[state][compatibility]")
+{
+    struct StateCodec : GrokFxAudioProcessor
+    {
+        static void encode(const juce::XmlElement& xml, juce::MemoryBlock& out) { copyXmlToBinary(xml, out); }
+    };
+    auto plugin = makePlugin();
+    setReal(*plugin, "l1_pitch", 5.0f);
+    auto oldState = plugin->apvts.copyState();
+    for (int i = oldState.getNumChildren(); --i >= 0;)
+    {
+        const auto id = oldState.getChild(i).getProperty("id").toString();
+        if (id == "delayStyle" || id == "trimStart" || id == "trimEnd"
+            || id.endsWith("_useCustom") || id.endsWith("_sampleStart") || id.endsWith("_sampleEnd"))
+            oldState.removeChild(i, nullptr);
+    }
+    auto xml = oldState.createXml();
+    REQUIRE(xml != nullptr);
+    juce::MemoryBlock encoded;
+    StateCodec::encode(*xml, encoded);
+    setReal(*plugin, "l1_pitch", 0.0f);
+    setReal(*plugin, "l1_useCustom", 1.0f);
+    setReal(*plugin, "l1_sampleStart", 0.8f);
+    setReal(*plugin, "l1_sampleEnd", 0.8f);
+    setReal(*plugin, "trimEnd", 0.3f);
+    setReal(*plugin, "delayStyle", 2.0f);
+    plugin->setStateInformation(encoded.getData(), static_cast<int>(encoded.getSize()));
+    REQUIRE(getReal(*plugin, "l1_pitch") == Catch::Approx(5.0f));
+    REQUIRE(getReal(*plugin, "l1_useCustom") == Catch::Approx(0.0f));
+    REQUIRE(getReal(*plugin, "l1_sampleStart") == Catch::Approx(0.0f));
+    REQUIRE(getReal(*plugin, "l1_sampleEnd") == Catch::Approx(1.0f));
+    REQUIRE(getReal(*plugin, "trimEnd") == Catch::Approx(1.0f));
+    REQUIRE(getReal(*plugin, "delayStyle") == Catch::Approx(0.0f));
+}

@@ -41,6 +41,26 @@ juce::String parameterXml(const juce::ValueTree& source)
     return {};
 }
 
+void addMissingNewParameters(juce::ValueTree& state, juce::AudioProcessorValueTreeState& apvts)
+{
+    juce::StringArray ids { "delayStyle", "trimStart", "trimEnd" };
+    for (int layer = 0; layer < grokfx::layerCount; ++layer)
+        for (const char* suffix : { "useCustom", "sampleStart", "sampleEnd" })
+            ids.add(grokfx::layerParam(layer, suffix));
+    for (const auto& id : ids)
+    {
+        if (state.getChildWithProperty("id", id).isValid())
+            continue;
+        if (auto* parameter = apvts.getParameter(id))
+        {
+            juce::ValueTree child("PARAM");
+            child.setProperty("id", id, nullptr);
+            child.setProperty("value", parameter->convertFrom0to1(parameter->getDefaultValue()), nullptr);
+            state.appendChild(child, nullptr);
+        }
+    }
+}
+
 } // namespace
 
 struct GrokFxAudioProcessor::Raw
@@ -812,7 +832,10 @@ void GrokFxAudioProcessor::toggleAB()
         auto restored = juce::ValueTree::fromXml(slotB);
         stripSessionMeta(restored);
         if (restored.isValid())
+        {
+            addMissingNewParameters(restored, apvts);
             apvts.replaceState(restored);
+        }
         showingB.store(true);
     }
     else
@@ -823,7 +846,10 @@ void GrokFxAudioProcessor::toggleAB()
         auto restored = juce::ValueTree::fromXml(slotA);
         stripSessionMeta(restored);
         if (restored.isValid())
+        {
+            addMissingNewParameters(restored, apvts);
             apvts.replaceState(restored);
+        }
         showingB.store(false);
     }
     for (auto& sample : layerSamples)
@@ -970,6 +996,7 @@ void GrokFxAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     slotA = tree.getProperty("slotA").toString();
     slotB = tree.getProperty("slotB").toString();
     stripSessionMeta(tree);
+    addMissingNewParameters(tree, apvts);
     apvts.replaceState(tree);
     for (auto& sample : layerSamples)
         sample.store(nullptr, std::memory_order_seq_cst);
