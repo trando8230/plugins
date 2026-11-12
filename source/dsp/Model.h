@@ -134,7 +134,7 @@ inline float noteToHz(float midi) noexcept
 
 inline constexpr const char* noteName(int root)
 {
-    switch (root & 11)
+    switch ((root % 12 + 12) % 12)
     {
         case 0: return "C";
         case 1: return "C#";
@@ -288,6 +288,11 @@ struct LoadedSample
     std::vector<float> left;
     std::vector<float> right;
     double sampleRate = 0.0;
+    int detectedRoot = -1; // -1 means no reliable pitched root
+    float rootConfidence = 0.0f;
+    // Integral sums every 256 frames allow exact region DC removal with at
+    // most 510 edge samples read when a trim changes on the audio thread.
+    std::vector<double> dcSumLeft, dcSumRight;
     float minColumn[waveformColumns] {};
     float maxColumn[waveformColumns] {};
 };
@@ -298,6 +303,8 @@ struct LayerModel
     bool useCustom = false;
     float sampleStart = 0.0f;
     float sampleEnd = 1.0f;
+    int sampleRoot = 0; // 0=Auto, 1=Unpitched, 2..13=C..B
+    bool matchKey = false;
     int type = 0;
     int bank = 0;
     int shape = 0;

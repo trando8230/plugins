@@ -82,6 +82,10 @@ target_sources(GrokShared INTERFACE ${GROKFX_SOURCES})
 target_include_directories(GrokShared INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/source
     ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_include_directories(GrokShared SYSTEM INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/third_party)
+if(MSVC)
+    target_compile_options(GrokShared INTERFACE /bigobj)
+endif()
 target_compile_definitions(GrokShared INTERFACE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0

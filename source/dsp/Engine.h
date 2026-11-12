@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Model.h"
+#include "SamplePlayer.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <atomic>
 #include <cstdint>
@@ -73,6 +74,7 @@ private:
     double sampleRate = 44100.0;
     bool prepared = false;
     Voice voices[layerCount];
+    SamplePlayer samplePlayers[layerCount];
     Comb combs[8];
     std::vector<float> delayL;
     std::vector<float> delayR;

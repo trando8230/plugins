@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "dsp/SampleAnalysis.h"
 #include "PluginEditor.h"
 #include "PluginIdentity.h"
 #include "parameters/Parameters.h"
@@ -45,7 +46,7 @@ void addMissingNewParameters(juce::ValueTree& state, juce::AudioProcessorValueTr
 {
     juce::StringArray ids { "delayStyle", "trimStart", "trimEnd" };
     for (int layer = 0; layer < grokfx::layerCount; ++layer)
-        for (const char* suffix : { "useCustom", "sampleStart", "sampleEnd" })
+        for (const char* suffix : { "useCustom", "sampleStart", "sampleEnd", "sampleRoot", "matchKey" })
             ids.add(grokfx::layerParam(layer, suffix));
     for (const auto& id : ids)
     {
@@ -69,6 +70,8 @@ struct GrokFxAudioProcessor::Raw
     {
         std::atomic<float>* enabled = nullptr;
         std::atomic<float>* useCustom = nullptr;
+        std::atomic<float>* sampleRoot = nullptr;
+        std::atomic<float>* matchKey = nullptr;
         std::atomic<float>* sampleStart = nullptr;
         std::atomic<float>* sampleEnd = nullptr;
         std::atomic<float>* type = nullptr;
@@ -155,6 +158,8 @@ GrokFxAudioProcessor::GrokFxAudioProcessor()
         auto& slot = raw->layers[layer];
         slot.enabled = bind(grokfx::layerParam(layer, "enabled"));
         slot.useCustom = bind(grokfx::layerParam(layer, "useCustom"));
+        slot.sampleRoot = bind(grokfx::layerParam(layer, "sampleRoot"));
+        slot.matchKey = bind(grokfx::layerParam(layer, "matchKey"));
         slot.sampleStart = bind(grokfx::layerParam(layer, "sampleStart"));
         slot.sampleEnd = bind(grokfx::layerParam(layer, "sampleEnd"));
         slot.type = bind(grokfx::layerParam(layer, "type"));
@@ -317,6 +322,7 @@ juce::Result GrokFxAudioProcessor::loadSample(int layer, const juce::File& file,
             sample->maxColumn[column] = std::max({ sample->maxColumn[column], left, right });
         }
     }
+    grokfx::analyseSampleRoot(*sample);
     const juce::Identifier pathProperty("samplePath" + juce::String(layer + 1));
     {
         const juce::ScopedLock stateGuard(stateLock);
@@ -430,6 +436,8 @@ grokfx::RenderModel GrokFxAudioProcessor::readModel() const noexcept
         layer.enabled = loadBool(slot.enabled);
         layer.useCustom = loadBool(slot.useCustom);
         layer.sample = layerSamples[i].load(std::memory_order_seq_cst);
+        layer.sampleRoot = loadInt(slot.sampleRoot, 0);
+        layer.matchKey = loadBool(slot.matchKey);
         layer.sampleStart = std::clamp(loadRaw(slot.sampleStart), 0.0f, 1.0f);
         layer.sampleEnd = std::clamp(loadRaw(slot.sampleEnd), layer.sampleStart, 1.0f);
         layer.type = loadInt(slot.type, 0);

@@ -200,6 +200,11 @@ public:
         };
 
         bindChoice(type, "type");
+        bindChoice(sampleRoot, "sampleRoot");
+        bindToggle(matchKey, "matchKey");
+        addAndMakeVisible(detectedRoot);
+        detectedRoot.setFont(Theme::font(12.0f));
+        detectedRoot.setTooltip("Estimated root of the loaded sample; choose a note to override it, or Unpitched for drums and noise.");
         bindChoice(bank, "bank");
         bindToggle(on, "enabled");
         bindToggle(solo, "solo");
@@ -291,9 +296,12 @@ public:
         placeRow(area, row1, Theme::knobCellH);
         std::vector<juce::Component*> row2 { &width, &reverb, &delay, &cutStart, &cutEnd, &resonance, &swing, &velStart };
         placeRow(area, row2, Theme::knobCellH);
-        std::vector<juce::Component*> row3 { &velEnd };
         auto velRow = area.removeFromTop(Theme::knobCellH);
         velEnd.setBounds(velRow.removeFromLeft(Theme::knobCellW).reduced(4, 2));
+        auto sampleRow = velRow.reduced(8, 10);
+        detectedRoot.setBounds(sampleRow.removeFromTop(22));
+        matchKey.setBounds(sampleRow.removeFromRight(100).removeFromTop(28));
+        sampleRoot.setBounds(sampleRow.removeFromLeft(150).removeFromTop(28));
         std::vector<juce::Component*> row4 { &shape, &filter, &fadeInCurve, &fadeOutCurve };
         placeRow(area, row4, Theme::controlH);
         area.removeFromTop(Theme::space1);
@@ -314,7 +322,21 @@ public:
     void refreshTrim()
     {
         auto* custom = audio.apvts.getRawParameterValue(layerParam(index, "useCustom"));
-        type.setEnabled(custom == nullptr || custom->load() < 0.5f);
+        const bool usingSample = custom != nullptr && custom->load() >= 0.5f;
+        type.setEnabled(!usingSample);
+        sampleRoot.setVisible(usingSample);
+        matchKey.setVisible(usingSample);
+        detectedRoot.setVisible(usingSample);
+        if (usingSample)
+        {
+            GrokFxAudioProcessor::SampleReadGuard guard(audio);
+            const auto model = audio.readModel();
+            const auto* sample = model.layers[index].sample;
+            const juce::String root = sample != nullptr && sample->detectedRoot >= 0
+                ? juce::String(noteName(sample->detectedRoot)) : "Unknown / unpitched";
+            detectedRoot.setText("Detected root: " + root + "  |  Pitch-preserving fit", juce::dontSendNotification);
+            matchKey.setEnabled(model.layers[index].sampleRoot != 1);
+        }
         auto* start = audio.apvts.getRawParameterValue(layerParam(index, "sampleStart"));
         auto* end = audio.apvts.getRawParameterValue(layerParam(index, "sampleEnd"));
         if (start != nullptr && end != nullptr)
@@ -324,6 +346,9 @@ public:
 private:
     GrokFxAudioProcessor& audio;
     WaveformView sampleWave;
+    juce::Label detectedRoot;
+    GrokChoice sampleRoot { "Source root: Auto uses detection, a note overrides it, and Unpitched disables key matching." };
+    GrokToggle matchKey { "Match key", "Transpose this sample from its source root to the song key without changing its length." };
     int index = 0;
     GrokChoice type { "Choose a stock sound for this layer; select a stock pad to exit custom mode." };
     GrokChoice bank { "Timbre bank for this layer." };

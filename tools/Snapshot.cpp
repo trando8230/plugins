@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include "ui/Theme.h"
+#include "dsp/WavExport.h"
 
 namespace
 {
@@ -125,5 +126,27 @@ int main(int argc, char** argv)
         }
     }
 
+    // Exercise the custom-source UI as well as the default stock layout.
+    const auto sampleFile = juce::File::getSpecialLocation(juce::File::tempDirectory)
+        .getNonexistentChildFile("grokfx-snapshot-tone", ".wav", false);
+    juce::AudioBuffer<float> tone(2, 24000);
+    for (int i = 0; i < tone.getNumSamples(); ++i)
+    {
+        const float value = 0.3f * std::sin(juce::MathConstants<float>::twoPi * 440.0f * static_cast<float>(i) / 48000.0f);
+        tone.setSample(0, i, value);
+        tone.setSample(1, i, value);
+    }
+    if (!grokfx::writeStereoWav(sampleFile, tone, 48000.0, grokfx::WavFormat::float32)) return 6;
+    const auto loaded = plugin->loadSample(0, sampleFile);
+    sampleFile.deleteFile();
+    if (loaded.failed()) return 7;
+    plugin->apvts.getParameter("l1_useCustom")->setValueNotifyingHost(1.0f);
+    for (const float factor : { 0.75f, 1.0f, 2.0f })
+    {
+        editor->setSize(juce::roundToInt(grokfx::Theme::baseW * factor), juce::roundToInt(grokfx::Theme::baseH * factor));
+        juce::MessageManager::getInstance()->runDispatchLoopUntil(80);
+        grok->renderWaveformSync();
+        if (!writePng(output.getChildFile("grokfx-custom-" + juce::String(juce::roundToInt(factor * 100)) + ".png"), snapshotOf(*editor))) return 8;
+    }
     return 0;
 }

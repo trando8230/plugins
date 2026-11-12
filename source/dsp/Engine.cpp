@@ -155,6 +155,7 @@ float Engine::Comb::process(float input, int tap, float feedback, float damp) no
 void Engine::prepare(double newSampleRate)
 {
     sampleRate = sanitizeSampleRate(newSampleRate);
+    for (auto& player : samplePlayers) player.prepare(sampleRate);
     const int reverbMax = static_cast<int>(sampleRate * 0.12) + 8;
     const int baseTaps[8] = { 29, 37, 41, 47, 53, 59, 67, 73 };
     for (int i = 0; i < 8; ++i)
@@ -174,6 +175,7 @@ void Engine::prepare(double newSampleRate)
 
 void Engine::reset() noexcept
 {
+    for (auto& player : samplePlayers) player.reset();
     for (auto& voice : voices)
         voice = {};
     for (auto& comb : combs)
@@ -483,16 +485,7 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
                 continue;
             float u = static_cast<float>(sampleIndex) / static_cast<float>(std::max<int64_t>(1, musical - 1));
             if (layer.reverse) u = 1.0f - u;
-            const float start = std::clamp(layer.sampleStart, 0.0f, 1.0f);
-            const float end = std::clamp(layer.sampleEnd, start, 1.0f);
-            const float pitchRatio = std::pow(2.0f, (static_cast<float>(layer.pitchSemis) + layer.fineCents / 100.0f) / 12.0f);
-            const double position = (start + u * (end - start) * pitchRatio) * static_cast<double>(count - 1);
-            if (position > end * static_cast<double>(count - 1))
-                continue;
-            const auto index = std::min(static_cast<size_t>(position), count - 2);
-            const float fraction = static_cast<float>(position - static_cast<double>(index));
-            sourceL = sample.left[index] + (sample.left[index + 1] - sample.left[index]) * fraction;
-            sourceR = sample.right[index] + (sample.right[index + 1] - sample.right[index]) * fraction;
+            samplePlayers[layerIndex].read(layer, model.keyRoot, sampleIndex, musical, sourceL, sourceR);
             float envelope = 1.0f;
             if (u < layer.offset) envelope = 0.0f;
             if (layer.fadeIn > 0.001f && u < layer.fadeIn) envelope *= curveAt(u / layer.fadeIn, layer.fadeInCurve);

@@ -690,7 +690,8 @@ TEST_CASE("Old sessions reset newly added controls to their defaults", "[state][
     {
         const auto id = oldState.getChild(i).getProperty("id").toString();
         if (id == "delayStyle" || id == "trimStart" || id == "trimEnd"
-            || id.endsWith("_useCustom") || id.endsWith("_sampleStart") || id.endsWith("_sampleEnd"))
+            || id.endsWith("_useCustom") || id.endsWith("_sampleStart") || id.endsWith("_sampleEnd")
+            || id.endsWith("_sampleRoot") || id.endsWith("_matchKey"))
             oldState.removeChild(i, nullptr);
     }
     auto xml = oldState.createXml();
@@ -701,6 +702,8 @@ TEST_CASE("Old sessions reset newly added controls to their defaults", "[state][
     setReal(*plugin, "l1_useCustom", 1.0f);
     setReal(*plugin, "l1_sampleStart", 0.8f);
     setReal(*plugin, "l1_sampleEnd", 0.8f);
+    setReal(*plugin, "l1_sampleRoot", 5.0f);
+    setReal(*plugin, "l1_matchKey", 1.0f);
     setReal(*plugin, "trimEnd", 0.3f);
     setReal(*plugin, "delayStyle", 2.0f);
     plugin->setStateInformation(encoded.getData(), static_cast<int>(encoded.getSize()));
@@ -708,6 +711,8 @@ TEST_CASE("Old sessions reset newly added controls to their defaults", "[state][
     REQUIRE(getReal(*plugin, "l1_useCustom") == Catch::Approx(0.0f));
     REQUIRE(getReal(*plugin, "l1_sampleStart") == Catch::Approx(0.0f));
     REQUIRE(getReal(*plugin, "l1_sampleEnd") == Catch::Approx(1.0f));
+    REQUIRE(getReal(*plugin, "l1_sampleRoot") == Catch::Approx(0.0f));
+    REQUIRE(getReal(*plugin, "l1_matchKey") == Catch::Approx(0.0f));
     REQUIRE(getReal(*plugin, "trimEnd") == Catch::Approx(1.0f));
     REQUIRE(getReal(*plugin, "delayStyle") == Catch::Approx(0.0f));
 }
