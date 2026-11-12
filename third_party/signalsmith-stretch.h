@@ -228,12 +228,20 @@ struct SignalsmithStretch {
 			prevCopiedInput = toIndex;
 		};
 
-		Sample totalEnergy = 0;
-		for (int c = 0; c < channels; ++c) {
-			auto &&inputChannel = inputs[c];
-			for (int i = 0; i < inputSamples; ++i) {
-				Sample s = inputChannel[i];
-				totalEnergy += s*s;
+		// Grok FX: random-access input may skip millions of source frames when
+		// fitting a long file to one beat. Silence detection is only a shortcut;
+		// bypass its full-input scan above one analysis window so callback work
+		// depends on output size, not skipped source length. copyInput remains
+		// bounded by the configured analysis window.
+		const int energyScanLimit = int(stft.blockSamples() + stft.defaultInterval());
+		Sample totalEnergy = inputSamples > energyScanLimit ? noiseFloor : 0;
+		if (inputSamples <= energyScanLimit) {
+			for (int c = 0; c < channels; ++c) {
+				auto &&inputChannel = inputs[c];
+				for (int i = 0; i < inputSamples; ++i) {
+					Sample s = inputChannel[i];
+					totalEnergy += s*s;
+				}
 			}
 		}
 

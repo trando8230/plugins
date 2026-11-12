@@ -238,3 +238,46 @@ TEST_CASE("Detected note labels cover all twelve pitch classes", "[sample][key]"
     for (int root = 0; root < 12; ++root)
         REQUIRE(juce::String(grokfx::noteName(root)) == names[static_cast<size_t>(root)]);
 }
+
+TEST_CASE("Maximum sample compression and expansion stay bounded without allocations", "[sample][stretch][realtime]")
+{
+    grokfx::LoadedSample sample;
+    sample.sampleRate = 8000.0;
+    sample.left.resize(8 * 1024 * 1024);
+    sample.right.resize(sample.left.size());
+    for (size_t i = 0; i < sample.left.size(); ++i)
+    {
+        sample.left[i] = 0.2f * std::sin(static_cast<float>(i % 100) * juce::MathConstants<float>::twoPi / 100.0f);
+        sample.right[i] = -sample.left[i];
+    }
+    grokfx::SamplePlayer player;
+    player.prepare(384000.0);
+    grokfx::LayerModel layer;
+    layer.sample = &sample;
+    float left, right;
+    bool finite = true;
+    size_t allocations;
+    {
+        allocationProbe::Scope scope;
+        // The longest allowed source fitted to the shortest phrase at the
+        // maximum engine rate; seek to both ends and change direction.
+        for (const int start : { 0, 57000 })
+        {
+            for (int i = start; i < start + 256; ++i)
+            {
+                player.read(layer, 0, i, 57600, left, right);
+                finite = finite && std::isfinite(left) && std::isfinite(right);
+            }
+            layer.reverse = true;
+        }
+        layer.sampleEnd = 0.00001f; // tiny selected region expanded to 16 bars
+        for (int i = 0; i < 256; ++i)
+        {
+            player.read(layer, 0, i, 73728000, left, right);
+            finite = finite && std::isfinite(left) && std::isfinite(right);
+        }
+        allocations = allocationProbe::count;
+    }
+    REQUIRE(finite);
+    REQUIRE(allocations == 0);
+}
