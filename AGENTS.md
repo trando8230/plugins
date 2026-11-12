@@ -1,6 +1,6 @@
 # Grok FX agent notes
 
-- Plugin identity is stable: product name `Grok FX`, manufacturer `Rando Audio`, bundle id `com.randoaudio.grokfx`, plugin code `Grok`, manufacturer code `Raud`. Hosts identify a saved set by these codes. Enforced by the Catch2 test `Plugin identity codes stay stable`.
+- Plugin identity is stable: product and manufacturer display names `Grok FX`, bundle id `com.randoaudio.grokfx`, plugin code `Grok`, manufacturer code `Raud`. Hosts identify a saved set by these codes. Enforced by the Catch2 test `Plugin identity codes stay stable`.
 - Parameter IDs are stable for the same reason. Do not rename an ID that has shipped. Enforced by `Required parameters exist with host-facing names` and `State round-trips through save and reload`.
 - Host tempo falls back to 120 BPM when the playhead is missing or the tempo is non-positive or non-finite. Enforced by `Tempo falls back to 120 BPM when the host has no tempo or playhead`.
 - Musical length is `llround(beats * sampleRate * 60 / bpm)` in 4/4, and the impact or drop is the last musical sample before the tail. Enforced by `Rendered length matches every musical option at 120 and 130 BPM` and `Impact and riser land on the drop`.
@@ -17,3 +17,20 @@
 - A failed stem write deletes that export and surfaces the error. Enforced by `Failed stem write surfaces an error`.
 - Closing the editor stops the peak render between chunks instead of killing the thread. Enforced by `Closing the editor stops the peak render between chunks`.
 - The release zip includes the full GNU AGPL-3.0 text and the Inter OFL, and the macOS job checks `lipo -archs` for arm64 and x86_64. Enforced by `Release package lists the AGPL and Inter OFL`.
+- Downlifters fade out over the musical section, and reversing one reverses that envelope. Enforced by `Downlifter fades while reverse makes it rise`.
+- Knob wheel input changes values only inside the drawn dial. Enforced by `Knob wheel responds only inside its circular dial`.
+- Knob readouts format each parameter in its displayed units. Enforced by `Knob values show meaningful units`.
+- Delay note lengths retain their existing parameter choices and support straight, dotted and triplet rhythms. Enforced by `Delay note lengths support dotted and triplet rhythms`.
+- Enabled layers are selected with tabs and the Mix and Drop panels fit without scrolling. Enforced by `Layer tabs add and select enabled layers` and `Mix and drop controls fit without scrolling`.
+- Presets restore parameter state and reject invalid files without changing it. Enforced by `Presets round-trip and reject invalid files`.
+- Clicking the waveform starts preview at the chosen point and clicking again stops it; free preview turns off host following. Enforced by `Waveform preview starts at the clicked position and stops`.
+- Space at zero removes the reverb send while preserving the dry signal. Enforced by `Space at zero removes reverb without changing the dry sound`.
+- Right-clicking a knob toggles a saved lock that protects its value from Randomize. Enforced by `Right click locks one knob against randomization and saves it`.
+- Exported audio uses the selected output waveform region. Enforced by `Exported waveform uses the selected trim region`.
+- Sample buffers must stay alive for all audio and offline readers without locks on the audio thread; sample paths and trims survive state restore. Enforced by `Custom stereo samples render and layer trim selects the source region` and `Replacing samples while rendering keeps audio finite`.
+- Sessions predating the new sample, trim, and delay parameters restore their default values instead of retaining settings from the previously loaded state. Enforced by `Old sessions reset newly added controls to their defaults`.
+- Parameter callbacks request peak renders using an atomic flag; worker wakeup is never signaled from the audio callback. Responsiveness is covered by `Drag file is ready before the gesture` and `Closing the editor stops the peak render between chunks`.
+
+- Sample fit preserves pitch independently of length, BPM, trim and source sample rate; Pitch/Fine and optional Match key change pitch without shortening the phrase. Covered by `Sample fit preserves pitch across lengths rates trims reverse and seeks` and `Sample key matching manual root and unpitched mode keep duration`.
+- Sample-root analysis runs before immutable buffer publication, never in the audio callback. Unknown/unpitched sources receive no automatic transposition. Root overrides and Match key are stable parameters with legacy defaults. Covered by `Sample root detection recognises every key and rejects uncertain audio` and `Sample key controls and detection survive project recall`.
+- Signalsmith storage is configured in prepare; first playback, seeks, trims, reverse, pitch changes and replacement do not allocate C++ storage. Covered by `Sample stretching allocates no C++ storage during playback or seeks`.

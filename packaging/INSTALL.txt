@@ -1,4 +1,4 @@
-Grok FX by Rando Audio
+Grok FX
 ======================
 
 This build is unsigned. macOS will ask you to approve it once.

@@ -94,6 +94,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addFloat(*group, layerParam(layer, "velEnd"), layerName(layer, "Velocity End"), Range(0.0f, 1.0f), 1.0f, "%");
         addChoice(*group, layerParam(layer, "velCurve"), layerName(layer, "Velocity Curve"), curves, 1);
         addInt(*group, layerParam(layer, "seed"), layerName(layer, "Variation"), 1, 999983, 1000 + layer * 997, "seed");
+        addChoice(*group, layerParam(layer, "sampleRoot"), layerName(layer, "Sample Root"),
+                  { "Auto", "Unpitched", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" }, 0);
+        addBool(*group, layerParam(layer, "matchKey"), layerName(layer, "Match Key"), false);
+        addBool(*group, layerParam(layer, "useCustom"), layerName(layer, "Use Custom Sample"), false);
+        addFloat(*group, layerParam(layer, "sampleStart"), layerName(layer, "Sample Start"), Range(0.0f, 1.0f), 0.0f, "%");
+        addFloat(*group, layerParam(layer, "sampleEnd"), layerName(layer, "Sample End"), Range(0.0f, 1.0f), 1.0f, "%");
 
         layout.add(std::move(group));
     }
@@ -122,6 +128,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addFloat(*master, "delayAmount", "Delay Amount", Range(0.0f, 1.0f), 0.22f, "%");
     addFloat(*master, "delayFeedback", "Delay Feedback", Range(0.0f, 0.85f), 0.32f, "%");
     addChoice(*master, "delayDivision", "Delay Time", { "1/2", "1/4", "1/8", "1/8d", "1/16" }, 2);
+    addChoice(*master, "delayStyle", "Delay Rhythm", { "Straight", "Dotted", "Triplet" }, 0);
     addChoice(*master, "masterFilter", "Master Filter", filters, 0);
     addFloat(*master, "masterCutoff", "Master Cutoff", Range(20.0f, 20000.0f, 0.0f, 0.3f), 14000.0f, "Hz");
     addFloat(*master, "masterResonance", "Master Resonance", Range(0.0f, 1.0f), 0.12f, "%");
@@ -137,6 +144,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addChoice(*exportGroup, "exportBits", "Export Bit Depth", { "16-bit", "24-bit", "32-bit float" }, 1);
     addChoice(*exportGroup, "exportRate", "Export Sample Rate", { "Host", "44.1 kHz", "48 kHz", "96 kHz" }, 0);
     addBool(*exportGroup, "exportStems", "Export Stems", false);
+    addFloat(*exportGroup, "trimStart", "Export Start", Range(0.0f, 1.0f), 0.0f, "%");
+    addFloat(*exportGroup, "trimEnd", "Export End", Range(0.0f, 1.0f), 1.0f, "%");
     layout.add(std::move(exportGroup));
 
     return layout;

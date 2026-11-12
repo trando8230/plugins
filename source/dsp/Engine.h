@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Model.h"
+#include "SamplePlayer.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <atomic>
 #include <cstdint>
@@ -43,6 +44,8 @@ private:
         double phase[8] {};
         float svf1 = 0.0f;
         float svf2 = 0.0f;
+        float sampleSvfR1 = 0.0f;
+        float sampleSvfR2 = 0.0f;
         float tilt = 0.0f;
         float formantY1[3] {};
         float formantY2[3] {};
@@ -71,6 +74,7 @@ private:
     double sampleRate = 44100.0;
     bool prepared = false;
     Voice voices[layerCount];
+    SamplePlayer samplePlayers[layerCount];
     Comb combs[8];
     std::vector<float> delayL;
     std::vector<float> delayR;

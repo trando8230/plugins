@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace grokfx
 {
@@ -133,7 +134,7 @@ inline float noteToHz(float midi) noexcept
 
 inline constexpr const char* noteName(int root)
 {
-    switch (root & 11)
+    switch ((root % 12 + 12) % 12)
     {
         case 0: return "C";
         case 1: return "C#";
@@ -192,16 +193,18 @@ inline double divisionBeats(int division) noexcept
     }
 }
 
-inline double delayBeats(int division) noexcept
+inline double delayBeats(int division, int style = 0) noexcept
 {
+    double beats = 0.25;
     switch (division)
     {
-        case 0: return 2.0;
-        case 1: return 1.0;
-        case 2: return 0.5;
-        case 3: return 0.75;
-        default: return 0.25;
+        case 0: beats = 2.0; break;
+        case 1: beats = 1.0; break;
+        case 2: beats = 0.5; break;
+        case 3: beats = 0.75; break;
+        default: break;
     }
+    return beats * (style == 1 ? 1.5 : style == 2 ? 2.0 / 3.0 : 1.0);
 }
 
 // 120 BPM when the host has no usable tempo. Non-positive and non-finite
@@ -280,8 +283,28 @@ inline float unityMacro(float macro) noexcept
     return 0.35f + 1.3f * m; // 0.5 -> 1.0
 }
 
+struct LoadedSample
+{
+    std::vector<float> left;
+    std::vector<float> right;
+    double sampleRate = 0.0;
+    int detectedRoot = -1; // -1 means no reliable pitched root
+    float rootConfidence = 0.0f;
+    // Integral sums every 256 frames allow exact region DC removal with at
+    // most 510 edge samples read when a trim changes on the audio thread.
+    std::vector<double> dcSumLeft, dcSumRight;
+    float minColumn[waveformColumns] {};
+    float maxColumn[waveformColumns] {};
+};
+
 struct LayerModel
 {
+    const LoadedSample* sample = nullptr;
+    bool useCustom = false;
+    float sampleStart = 0.0f;
+    float sampleEnd = 1.0f;
+    int sampleRoot = 0; // 0=Auto, 1=Unpitched, 2..13=C..B
+    bool matchKey = false;
     int type = 0;
     int bank = 0;
     int shape = 0;
@@ -324,9 +347,12 @@ struct RenderModel
     int keyMode = 0; // 0 major, 1 minor
     int length = static_cast<int>(Length::fourBars);
     int delayDivision = static_cast<int>(DelayDivision::eighth);
+    int delayStyle = 0;
     int masterFilter = 0;
     int exportBits = 1; // 0=16, 1=24, 2=32f
     int exportRate = 0; // 0=host, 1=44.1, 2=48, 3=96
+    float trimStart = 0.0f;
+    float trimEnd = 1.0f;
     float character = 0.5f;
     float intensity = 0.5f;
     float space = 0.5f;
@@ -380,7 +406,8 @@ inline juce::String exportFileName(const RenderModel& model, double bpm, int ste
     juce::String types;
     if (stemLayer >= 0 && stemLayer < layerCount)
     {
-        types = "L" + juce::String(stemLayer + 1) + "-" + fxTypeToken(model.layers[stemLayer].type);
+        types = "L" + juce::String(stemLayer + 1) + "-"
+              + (model.layers[stemLayer].useCustom ? "Custom" : fxTypeToken(model.layers[stemLayer].type));
     }
     else
     {
@@ -390,7 +417,7 @@ inline juce::String exportFileName(const RenderModel& model, double bpm, int ste
                 continue;
             if (types.isNotEmpty())
                 types << "-";
-            types << fxTypeToken(model.layers[i].type);
+            types << (model.layers[i].useCustom ? "Custom" : fxTypeToken(model.layers[i].type));
         }
         if (types.isEmpty())
             types = "Empty";

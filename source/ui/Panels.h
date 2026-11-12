@@ -15,10 +15,13 @@ public:
     bool tick(float dt);
 
 private:
+    void chooseSample();
+    void loadSample(int type, const juce::File& file);
     GrokFxAudioProcessor& audio;
     juce::Label title { {}, "Pick" };
     juce::OwnedArray<GrokButton> banks;
     juce::OwnedArray<SoundPad> pads;
+    std::unique_ptr<juce::FileChooser> sampleChooser;
 };
 
 class MixPanel : public juce::Component
@@ -28,13 +31,15 @@ public:
     ~MixPanel() override;
     void resized() override;
     void refresh();
+    void setLayerPeaks(const WavePeaks& peaks, int layer);
 
 private:
     class Card;
     GrokFxAudioProcessor& audio;
-    juce::Viewport viewport;
-    juce::Component content;
     juce::OwnedArray<Card> cards;
+    juce::OwnedArray<GrokButton> layerTabs;
+    GrokButton addLayer { "+", "Add another layer and select it." };
+    int selectedLayer = 0;
 };
 
 class DropPanel : public juce::Component
@@ -48,16 +53,14 @@ public:
     OutputMeter& meter() { return levels; }
 
     GrokToggle preview { "Preview", "Audition the mix through the plugin output." };
-    GrokToggle follow { "Follow", "Start the phrase in time with the host bar while the transport is playing." };
     GrokButton newTake { "New take", "Roll a new variation seed on every unlocked layer." };
-    GrokButton randomize { "Randomize", "Randomize unlocked layers by the strength amount." };
     GrokKnob strength { "Strength", "How far Randomize moves each unlocked control." };
     GrokChoice bits { "Export bit depth. Drag writes this WAV format." };
     GrokChoice rate { "Export sample rate. Host uses the track rate at the moment you drag." };
     GrokToggle stems { "Stems", "Drag one WAV per audible layer instead of the full mix." };
     GrokKnob tail { "Tail", "How long the clip rings past the drop, in beats." };
     GrokKnob intensity { "Intensity", "Macro for level, drive and resonance." };
-    GrokKnob space { "Space", "Macro for width, reverb and delay." };
+    GrokKnob space { "Space", "Adjust the amount and size of the layer reverb." };
     GrokKnob brightness { "Bright", "Macro for brightness and filter cutoff." };
     GrokKnob tension { "Tension", "Macro for sweep depth and roll acceleration." };
     GrokKnob tone { "Tone", "Balance between the darker body and the bright edge." };
@@ -70,6 +73,8 @@ public:
     GrokKnob resonance { "Reso", "Master filter resonance." };
     GrokKnob reverb { "Room", "Master reverb size." };
     GrokKnob delay { "Delay", "Master delay amount." };
+    GrokChoice delayTime { "Choose the tempo-synced delay note length." };
+    GrokChoice delayRhythm { "Set the delay rhythm to straight, dotted, or triplet." };
 
 private:
     GrokFxAudioProcessor& audio;
@@ -77,7 +82,6 @@ private:
     juce::Label bpm { {}, "120 BPM" };
     WaveformView wave;
     OutputMeter levels;
-    juce::Viewport viewport;
     juce::Component details;
 };
 

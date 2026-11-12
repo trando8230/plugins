@@ -127,6 +127,7 @@ jobs:
           cp packaging/INSTALL.txt dist/INSTALL.txt
           cp LICENSE dist/LICENSE
           cp licenses/OFL-Inter.txt dist/OFL-Inter.txt
+          cp licenses/MIT-Signalsmith-*.txt dist/
           tar -a -cf "GrokFX-${{ runner.os }}.zip" -C dist .
 
       - name: Upload plugins

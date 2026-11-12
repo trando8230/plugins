@@ -25,15 +25,26 @@ public:
     GrokKnob(juce::String labelText, juce::String tip);
     void bind(juce::AudioProcessorValueTreeState& state, const juce::String& paramId);
     bool tick(float dt);
+    static juce::String formatValue(double value, const juce::String& unit, bool pan);
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    bool isLocked() const;
 
 private:
+    juce::Rectangle<float> dialBounds() const;
     void paint(juce::Graphics& g) override;
     void mouseDown(const juce::MouseEvent& event) override;
     void mouseDrag(const juce::MouseEvent& event) override;
+    void mouseUp(const juce::MouseEvent& event) override;
     void mouseEnter(const juce::MouseEvent& event) override;
     void mouseExit(const juce::MouseEvent& event) override;
 
     juce::String label;
+    bool isPan = false;
+    juce::String parameterId;
+    juce::String baseTooltip;
+    juce::AudioProcessorValueTreeState* boundState = nullptr;
+    bool shownLocked = false;
+    bool togglingLock = false;
     juce::RangedAudioParameter* parameter = nullptr;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> attachment;
     float shown = 0.0f;
@@ -69,12 +80,19 @@ public:
     void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
 };
 
+class DiceButton : public GrokButton
+{
+public:
+    DiceButton();
+    void paintButton(juce::Graphics& g, bool highlighted, bool down) override;
+};
+
 class SoundPad : public juce::Component,
                  public juce::FileDragAndDropTarget,
                  public juce::SettableTooltipClient
 {
 public:
-    SoundPad(int typeIndex, std::function<void(int)> onPick);
+    SoundPad(int typeIndex, std::function<void(int)> onPick, std::function<void(int, const juce::File&)> onDrop);
     void setSelected(bool shouldSelect);
     bool tick(float dt);
     void paint(juce::Graphics& g) override;
@@ -89,6 +107,7 @@ private:
 
     int type = 0;
     std::function<void(int)> pick;
+    std::function<void(int, const juce::File&)> dropSample;
     bool selected = false;
     float hover = 0.0f;
     float hoverTarget = 0.0f;
@@ -102,11 +121,15 @@ public:
     void setPeaks(const float* mins, const float* maxes, int count, float dropFraction);
     void setPlayhead(float fraction, bool running);
     void setStatus(const juce::String& text);
+    void setCaption(juce::String text) { captionText = std::move(text); }
+    void setTrim(float start, float end);
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
     void mouseUp(const juce::MouseEvent&) override;
     void paint(juce::Graphics& g) override;
     std::function<void()> onExternalDrag;
+    std::function<void(float)> onPreviewClick;
+    std::function<void(float, float)> onTrimChange;
     bool tick(float dt);
 
 private:
@@ -119,7 +142,11 @@ private:
     float playhead = 0.0f;
     bool playing = false;
     bool dragArmed = false;
+    int trimDrag = 0;
+    float trimStart = 0.0f;
+    float trimEnd = 1.0f;
     juce::String status;
+    juce::String captionText { "Drag onto a track" };
 };
 
 class OutputMeter : public juce::Component,

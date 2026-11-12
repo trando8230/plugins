@@ -63,6 +63,9 @@ GrokKnob::GrokKnob(juce::String labelText, juce::String tip)
 
 void GrokKnob::bind(juce::AudioProcessorValueTreeState& state, const juce::String& paramId)
 {
+    boundState = &state;
+    parameterId = paramId;
+    isPan = paramId.endsWith("_pan");
     parameter = dynamic_cast<juce::RangedAudioParameter*>(state.getParameter(paramId));
     attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(state, paramId, *this);
     if (parameter != nullptr)
@@ -70,6 +73,43 @@ void GrokKnob::bind(juce::AudioProcessorValueTreeState& state, const juce::Strin
     shown = static_cast<float>(valueToProportionOfLength(getValue()));
     if (getTooltip().isEmpty() && parameter != nullptr)
         setTooltip(parameter->getName(64));
+    baseTooltip = getTooltip();
+    shownLocked = isLocked();
+    setTooltip(baseTooltip + (shownLocked ? " Right-click to unlock." : " Right-click to lock against Randomize."));
+}
+
+bool GrokKnob::isLocked() const
+{
+    return boundState != nullptr && static_cast<bool>(boundState->state.getProperty("lock_" + parameterId, false));
+}
+
+juce::String GrokKnob::formatValue(double value, const juce::String& unit, bool pan)
+{
+    if (pan)
+    {
+        const int amount = juce::roundToInt(std::abs(value) * 100.0);
+        return amount == 0 ? "C" : juce::String(amount) + (value < 0.0 ? " L" : " R");
+    }
+    if (unit == "%") return juce::String(juce::roundToInt(value * 100.0)) + "%";
+    if (unit == "st") return juce::String(juce::roundToInt(value)) + " st";
+    if (unit == "ct") return juce::String(juce::roundToInt(value)) + " ct";
+    if (unit == "Hz") return juce::String(juce::roundToInt(value)) + " Hz";
+    return juce::String(value, 1) + (unit.isEmpty() ? "" : " " + unit);
+}
+
+juce::Rectangle<float> GrokKnob::dialBounds() const
+{
+    auto area = getLocalBounds().toFloat();
+    area.removeFromBottom(16.0f);
+    const float side = std::max(0.0f, std::min(area.getWidth(), area.getHeight()) - 4.0f);
+    return juce::Rectangle<float>(side, side).withCentre(area.getCentre());
+}
+
+void GrokKnob::mouseWheelMove(const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
+{
+    const auto dial = dialBounds();
+    if (event.position.getDistanceFrom(dial.getCentre()) <= dial.getWidth() * 0.5f)
+        juce::Slider::mouseWheelMove(event, wheel);
 }
 
 bool GrokKnob::tick(float dt)
@@ -77,9 +117,15 @@ bool GrokKnob::tick(float dt)
     const float target = static_cast<float>(valueToProportionOfLength(getValue()));
     const float next = approach(shown, target, dt);
     const float nextHover = approach(hover, hoverTarget, dt);
-    const bool changed = next != shown || nextHover != hover;
+    const bool locked = isLocked();
+    const bool changed = next != shown || nextHover != hover || locked != shownLocked;
     shown = next;
     hover = nextHover;
+    if (shownLocked != locked)
+    {
+        shownLocked = locked;
+        setTooltip(baseTooltip + (locked ? " Right-click to unlock." : " Right-click to lock against Randomize."));
+    }
     if (changed)
         repaint();
     return changed;
@@ -87,13 +133,32 @@ bool GrokKnob::tick(float dt)
 
 void GrokKnob::mouseDown(const juce::MouseEvent& event)
 {
+    if (event.mods.isPopupMenu() && boundState != nullptr)
+    {
+        togglingLock = true;
+        boundState->state.setProperty("lock_" + parameterId, !isLocked(), boundState->undoManager);
+        repaint();
+        return;
+    }
     const bool fine = event.mods.isShiftDown() || event.mods.isCommandDown();
     setMouseDragSensitivity(fine ? 980 : 220);
     juce::Slider::mouseDown(event);
 }
 
+void GrokKnob::mouseUp(const juce::MouseEvent& event)
+{
+    if (togglingLock)
+    {
+        togglingLock = false;
+        return;
+    }
+    juce::Slider::mouseUp(event);
+}
+
 void GrokKnob::mouseDrag(const juce::MouseEvent& event)
 {
+    if (togglingLock || event.mods.isPopupMenu())
+        return;
     const bool fine = event.mods.isShiftDown() || event.mods.isCommandDown();
     setMouseDragSensitivity(fine ? 980 : 220);
     juce::Slider::mouseDrag(event);
@@ -115,8 +180,7 @@ void GrokKnob::paint(juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat();
     auto labelArea = area.removeFromBottom(16.0f);
-    const float side = std::min(area.getWidth(), area.getHeight()) - 4.0f;
-    auto dial = juce::Rectangle<float>(side, side).withCentre(area.getCentre());
+    auto dial = dialBounds();
     const float radius = dial.getWidth() * 0.5f;
     const auto centre = dial.getCentre();
     g.setColour(Theme::meterTrack());
@@ -135,26 +199,23 @@ void GrokKnob::paint(juce::Graphics& g)
     g.setColour(Theme::accent());
     g.strokePath(value, juce::PathStrokeType(3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     g.setColour(Theme::text());
-    g.drawLine(centre.x, centre.y,
-               centre.x + std::sin(angle) * (radius - 8.0f),
-               centre.y - std::cos(angle) * (radius - 8.0f), 2.0f);
+    g.setFont(Theme::font(Theme::typeCaption, true));
+    const auto text = formatValue(getValue(), parameter != nullptr ? parameter->getLabel() : juce::String(), isPan);
+    g.drawFittedText(text, dial.reduced(5.0f).toNearestInt(), juce::Justification::centred, 1);
+    if (isLocked())
+    {
+        auto mark = dial.removeFromTop(11.0f).removeFromRight(11.0f).reduced(1.0f);
+        g.setColour(Theme::accent());
+        juce::Path lock;
+        lock.addRoundedRectangle(mark.getX() + 2.0f, mark.getY() + 4.0f, 6.0f, 5.0f, 1.0f);
+        g.fillPath(lock);
+        g.drawRoundedRectangle(mark.getX() + 3.0f, mark.getY() + 1.0f, 4.0f, 5.0f, 2.0f, 1.0f);
+    }
 
     g.setColour(Theme::textMuted());
     g.setFont(Theme::font(Theme::typeCaption));
     g.drawFittedText(label, labelArea.toNearestInt(), juce::Justification::centred, 1);
 
-    if (isMouseButtonDown() || hover > 0.2f)
-    {
-        juce::String text = parameter != nullptr ? parameter->getCurrentValueAsText() : juce::String(getValue(), 2);
-        if (parameter != nullptr && parameter->getLabel().isNotEmpty())
-            text << " " << parameter->getLabel();
-        auto bubble = juce::Rectangle<float>(0.0f, 0.0f, 72.0f, 18.0f).withCentre({ centre.x, dial.getY() - 2.0f });
-        g.setColour(Theme::text().withAlpha(0.92f));
-        g.fillRoundedRectangle(bubble, Theme::radiusS);
-        g.setColour(juce::Colours::white);
-        g.setFont(Theme::font(Theme::typeCaption));
-        g.drawFittedText(text, bubble.toNearestInt(), juce::Justification::centred, 1);
-    }
 }
 
 GrokChoice::GrokChoice(juce::String tip)
@@ -204,7 +265,7 @@ void GrokToggle::paintButton(juce::Graphics& g, bool highlighted, bool down)
     g.fillRoundedRectangle(bounds, Theme::radiusS);
     g.setColour(on ? Theme::accentPressed() : Theme::accent().withAlpha(0.25f));
     g.drawRoundedRectangle(bounds, Theme::radiusS, 1.0f);
-    g.setColour(on ? juce::Colours::white : Theme::text());
+    g.setColour(on ? Theme::onAccent() : Theme::text());
     g.setFont(Theme::font(Theme::typeCaption, true));
     g.drawFittedText(getButtonText(), getLocalBounds().reduced(4, 0), juce::Justification::centred, 1);
 }
@@ -227,16 +288,36 @@ void GrokButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
     g.fillRoundedRectangle(bounds.translated(0.0f, 2.0f), Theme::radiusS);
     g.setColour(fill);
     g.fillRoundedRectangle(bounds, Theme::radiusS);
-    g.setColour(on || down || highlighted ? juce::Colours::white : Theme::text());
+    g.setColour(on || down || highlighted ? Theme::onAccent() : Theme::text());
     g.setFont(Theme::font(Theme::typeBody, true));
     g.drawFittedText(getButtonText(), getLocalBounds(), juce::Justification::centred, 1);
 }
 
-SoundPad::SoundPad(int typeIndex, std::function<void(int)> onPick)
-    : type(typeIndex), pick(std::move(onPick))
+DiceButton::DiceButton() : GrokButton({}, "Randomize unlocked layers by the strength amount.") {}
+
+void DiceButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
 {
-    setTooltip("Add " + juce::String(fxTypeName(type))
-               + ". The strip along the bottom is a drop zone for your own sample. Custom samples are coming soon.");
+    GrokButton::paintButton(g, highlighted, down);
+    const auto icon = getLocalBounds().toFloat().reduced(8.0f);
+    const float side = std::min(icon.getWidth(), icon.getHeight());
+    const auto die = juce::Rectangle<float>(side, side).withCentre(icon.getCentre()).reduced(1.0f);
+    g.setColour(highlighted || down ? Theme::onAccent() : Theme::text());
+    juce::Path outline;
+    outline.addRoundedRectangle(die, 3.0f);
+    g.strokePath(outline, juce::PathStrokeType(1.5f));
+    juce::Path dots;
+    const float dot = std::max(1.5f, side * 0.1f);
+    for (int i = 0; i < 3; ++i)
+        dots.addEllipse(die.getX() + die.getWidth() * (0.25f + 0.25f * i) - dot * 0.5f,
+                        die.getY() + die.getHeight() * (0.25f + 0.25f * i) - dot * 0.5f, dot, dot);
+    g.fillPath(dots);
+}
+
+SoundPad::SoundPad(int typeIndex, std::function<void(int)> onPick, std::function<void(int, const juce::File&)> onDrop)
+    : type(typeIndex), pick(std::move(onPick)), dropSample(std::move(onDrop))
+{
+    setTooltip(type == static_cast<int>(FxType::count) ? "Select or load a custom audio sample."
+               : "Select " + juce::String(fxTypeName(type)) + " or drop an audio file to use on this layer.");
     setRepaintsOnMouseActivity(false);
 }
 
@@ -263,60 +344,46 @@ bool SoundPad::tick(float dt)
 
 void SoundPad::drawIcon(juce::Graphics& g, juce::Rectangle<float> area) const
 {
-    g.setColour(selected ? juce::Colours::white.withAlpha(0.9f) : Theme::accent());
-    juce::Path path;
-    const float left = area.getX();
-    const float right = area.getRight();
-    const float top = area.getY();
-    const float bottom = area.getBottom();
-    const float mid = area.getCentreY();
-    if (type == 0)
-        path.startNewSubPath(left, bottom), path.lineTo(right, top);
-    else if (type == 1)
-        path.startNewSubPath(left, top), path.lineTo(right, bottom);
-    else if (type == 2)
+    const auto ink = selected ? Theme::onAccent() : Theme::accent();
+    if (type == static_cast<int>(FxType::count))
     {
-        path.startNewSubPath(left, mid);
-        path.lineTo(right - 8.0f, mid);
-        path.lineTo(right - 4.0f, top);
-        path.lineTo(right, mid);
-    }
-    else if (type == 3)
-    {
-        for (int i = 0; i < 6; ++i)
-        {
-            const float x = left + (right - left) * static_cast<float>(i) / 5.0f;
-            const float h = 4.0f + static_cast<float>(i) * 2.0f;
-            g.fillRoundedRectangle(x, bottom - h, 3.0f, h, 1.0f);
-        }
+        g.setColour(ink);
+        const auto centre = area.getCentre();
+        g.drawLine(centre.x - 6.0f, centre.y, centre.x + 6.0f, centre.y, 1.5f);
+        g.drawLine(centre.x, centre.y - 6.0f, centre.x, centre.y + 6.0f, 1.5f);
         return;
     }
-    else if (type == 4)
+    const float middle = area.getCentreY();
+    const float maxHeight = area.getHeight() * 0.46f;
+    g.setColour(ink.withAlpha(0.2f));
+    g.drawHorizontalLine(juce::roundToInt(middle), area.getX(), area.getRight());
+
+    juce::Path waveform;
+    constexpr int bars = 32;
+    for (int i = 0; i < bars; ++i)
     {
-        for (int i = 0; i < 10; ++i)
+        const float t = static_cast<float>(i) / static_cast<float>(bars - 1);
+        const float variation = 0.32f + 0.68f * std::abs(std::sin(t * 31.0f + std::sin(t * 13.0f)));
+        float envelope = 0.65f;
+        switch (type)
         {
-            const float x = left + (right - left) * static_cast<float>(i) / 9.0f;
-            const float h = 3.0f + static_cast<float>((i * 17) % 9);
-            g.fillRect(x, mid - h * 0.5f, 2.0f, h);
+            case 0: envelope = 0.12f + 0.88f * t; break;
+            case 1: envelope = 1.0f - 0.88f * t; break;
+            case 2: envelope = std::exp(-t * 5.0f); break;
+            case 3: envelope = (0.25f + 0.75f * t) * (0.25f + 0.75f * std::abs(std::sin(t * (12.0f + t * 30.0f)))); break;
+            case 4: envelope = 0.48f + 0.35f * variation; break;
+            case 5: envelope = 0.1f + 0.9f * t * t; break;
+            case 6: envelope = std::exp(-t * 2.5f) * (0.5f + 0.5f * std::abs(std::sin(t * (27.0f - 13.0f * t)))); break;
+            default: break;
         }
-        return;
+        const float x = area.getX() + t * area.getWidth();
+        const float height = std::max(0.8f, maxHeight * envelope * variation);
+        waveform.startNewSubPath(x, middle - height);
+        waveform.lineTo(x, middle + height);
     }
-    else if (type == 5)
-    {
-        path.startNewSubPath(left, bottom);
-        path.quadraticTo(area.getCentreX(), top, right, mid);
-    }
-    else
-    {
-        path.startNewSubPath(left, mid);
-        for (int i = 1; i <= 12; ++i)
-        {
-            const float x = left + (right - left) * static_cast<float>(i) / 12.0f;
-            const float amp = (bottom - top) * 0.5f * static_cast<float>(i) / 12.0f;
-            path.lineTo(x, mid + ((i % 2) == 0 ? amp : -amp));
-        }
-    }
-    g.strokePath(path, juce::PathStrokeType(1.6f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    g.setColour(ink);
+    g.strokePath(waveform, juce::PathStrokeType(1.2f, juce::PathStrokeType::curved,
+                                                juce::PathStrokeType::rounded));
 }
 
 void SoundPad::paint(juce::Graphics& g)
@@ -335,15 +402,15 @@ void SoundPad::paint(juce::Graphics& g)
     auto content = getLocalBounds().reduced(Theme::space1);
     auto drop = content.removeFromBottom(28);
     drawIcon(g, content.removeFromTop(28).reduced(8, 4).toFloat());
-    g.setColour(selected ? juce::Colours::white : Theme::text());
+    g.setColour(selected ? Theme::onAccent() : Theme::text());
     g.setFont(Theme::font(Theme::typeLabel, true));
-    g.drawFittedText(fxTypeName(type), content, juce::Justification::centred, 2);
+    g.drawFittedText(type == static_cast<int>(FxType::count) ? "Custom" : fxTypeName(type), content, juce::Justification::centred, 2);
 
-    g.setColour(selected ? juce::Colours::white.withAlpha(0.18f) : Theme::accentSoft());
+    g.setColour(selected ? Theme::onAccent().withAlpha(0.14f) : Theme::accentSoft());
     g.fillRoundedRectangle(drop.toFloat().reduced(2.0f, 1.0f), Theme::radiusS);
-    g.setColour(selected ? juce::Colours::white : Theme::textMuted());
+    g.setColour(selected ? Theme::onAccent() : Theme::textMuted());
     g.setFont(Theme::font(Theme::typeCaption));
-    g.drawFittedText(notice > 0.4f ? "Coming soon" : "Drop a sample here", drop, juce::Justification::centred, 1);
+    g.drawFittedText(notice > 0.4f ? "Sample loaded" : "Drop a sample here", drop, juce::Justification::centred, 1);
 }
 
 void SoundPad::mouseEnter(const juce::MouseEvent&) { hoverTarget = 1.0f; }
@@ -354,9 +421,10 @@ void SoundPad::mouseDown(const juce::MouseEvent&)
         pick(type);
 }
 
-void SoundPad::filesDropped(const juce::StringArray&, int, int)
+void SoundPad::filesDropped(const juce::StringArray& files, int, int)
 {
-    notice = 1.0f;
+    if (!files.isEmpty() && dropSample != nullptr)
+        dropSample(type, juce::File(files[0]));
     repaint();
 }
 
@@ -385,6 +453,13 @@ void WaveformView::setStatus(const juce::String& text)
     repaint();
 }
 
+void WaveformView::setTrim(float start, float end)
+{
+    trimStart = std::clamp(start, 0.0f, 1.0f);
+    trimEnd = std::clamp(end, trimStart, 1.0f);
+    repaint();
+}
+
 bool WaveformView::tick(float dt)
 {
     bool changed = playing;
@@ -398,10 +473,30 @@ bool WaveformView::tick(float dt)
     return changed;
 }
 
-void WaveformView::mouseDown(const juce::MouseEvent&) { dragArmed = true; }
+void WaveformView::mouseDown(const juce::MouseEvent& event)
+{
+    const auto plot = getLocalBounds().toFloat().reduced(10.0f, 12.0f);
+    const float startX = plot.getX() + plot.getWidth() * trimStart;
+    const float endX = plot.getX() + plot.getWidth() * trimEnd;
+    trimDrag = std::abs(event.position.x - startX) < 8.0f ? 1
+             : std::abs(event.position.x - endX) < 8.0f ? 2 : 0;
+    dragArmed = trimDrag == 0;
+}
 
 void WaveformView::mouseDrag(const juce::MouseEvent& event)
 {
+    if (trimDrag != 0)
+    {
+        const auto plot = getLocalBounds().toFloat().reduced(10.0f, 12.0f);
+        if (plot.getWidth() <= 0.0f)
+            return;
+        const float position = std::clamp((event.position.x - plot.getX()) / plot.getWidth(), 0.0f, 1.0f);
+        if (trimDrag == 1) trimStart = std::min(position, trimEnd - 0.001f);
+        else trimEnd = std::max(position, trimStart + 0.001f);
+        if (onTrimChange != nullptr) onTrimChange(trimStart, trimEnd);
+        repaint();
+        return;
+    }
     if (dragArmed && event.getDistanceFromDragStart() > 8 && onExternalDrag != nullptr)
     {
         dragArmed = false;
@@ -409,14 +504,26 @@ void WaveformView::mouseDrag(const juce::MouseEvent& event)
     }
 }
 
-void WaveformView::mouseUp(const juce::MouseEvent&) { dragArmed = false; }
+void WaveformView::mouseUp(const juce::MouseEvent& event)
+{
+    if (dragArmed && onPreviewClick != nullptr)
+    {
+        const auto plot = getLocalBounds().toFloat().reduced(10.0f, 12.0f);
+        if (plot.getWidth() > 0.0f)
+            onPreviewClick(std::clamp((event.position.x - plot.getX()) / plot.getWidth(), 0.0f, 1.0f));
+    }
+    dragArmed = false;
+    trimDrag = 0;
+}
 
 void WaveformView::paint(juce::Graphics& g)
 {
     auto bounds = getLocalBounds().toFloat();
-    g.setColour(Theme::text().withAlpha(0.9f));
+    g.setColour(Theme::backgroundBottom());
     g.fillRoundedRectangle(bounds, Theme::radiusM);
     auto plot = bounds.reduced(10.0f, 12.0f);
+    const float startX = plot.getX() + plot.getWidth() * trimStart;
+    const float endX = plot.getX() + plot.getWidth() * trimEnd;
     g.setColour(juce::Colours::white.withAlpha(0.16f));
     g.drawLine(plot.getX(), plot.getCentreY(), plot.getRight(), plot.getCentreY(), 1.0f);
 
@@ -440,6 +547,12 @@ void WaveformView::paint(juce::Graphics& g)
     wave.closeSubPath();
     g.setColour(Theme::accent().withAlpha(0.85f));
     g.fillPath(wave);
+    g.setColour(juce::Colours::black.withAlpha(0.55f));
+    g.fillRect(plot.getX(), plot.getY(), std::max(0.0f, startX - plot.getX()), plot.getHeight());
+    g.fillRect(endX, plot.getY(), std::max(0.0f, plot.getRight() - endX), plot.getHeight());
+    g.setColour(Theme::accent());
+    g.drawVerticalLine(juce::roundToInt(startX), plot.getY(), plot.getBottom());
+    g.drawVerticalLine(juce::roundToInt(endX), plot.getY(), plot.getBottom());
 
     const float dropX = plot.getX() + plot.getWidth() * drop;
     g.setColour(juce::Colours::white.withAlpha(0.85f));
@@ -454,7 +567,7 @@ void WaveformView::paint(juce::Graphics& g)
     g.setColour(juce::Colours::white.withAlpha(0.78f));
     g.setFont(Theme::font(Theme::typeCaption, true));
     auto caption = getLocalBounds().removeFromBottom(status.isNotEmpty() ? 32 : 18);
-    g.drawFittedText(status.isNotEmpty() ? status : "Drag onto a track", caption, juce::Justification::centred, 2);
+    g.drawFittedText(status.isNotEmpty() ? status : captionText, caption, juce::Justification::centred, 2);
 }
 
 void OutputMeter::setLevels(float left, float right)

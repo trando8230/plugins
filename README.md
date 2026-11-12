@@ -1,8 +1,14 @@
 # Grok FX
 
-Grok FX is a stereo instrument by Rando Audio. It builds transition effects in the song's key and tempo: risers, downlifters, impacts, snare rolls, noise sweeps, reverse-cymbal swells and sub drops. Load it on a MIDI track, preview the mix, then drag the waveform card onto an audio track.
+Grok FX is a stereo instrument for building transition effects in the song's key and tempo: risers, downlifters, impacts, snare rolls, noise sweeps, reverse-cymbal swells and sub drops. Load it on a MIDI track, preview the mix, then drag the waveform card onto an audio track.
 
-This repository is phase 1. Custom sample import, key detection, slicing, stretch and presets are not in this build. Each sound pad still has a drop zone so that path can land later; it shows "Coming soon" and does not load the file.
+Drop an audio file on a sound pad or choose the Custom slot to use a sample on a layer. Drag the layer waveform handles to select its source region. Pitch-preserving fit stretches that region to the chosen musical length: changing BPM, length, or source trim keeps its pitch. Pitch and Fine independently transpose it, including during reverse playback. Preview and WAV export use the same player.
+
+Each loaded sample is analysed for a dominant root note. The layer shows **Detected root**, a source-root menu (**Auto**, **Unpitched**, or a manual note), and **Match key**. Enable Match key to transpose from the source root to the song key by the nearest interval, then use Pitch and Fine for additional tuning. Match key defaults off so importing a sample preserves its original pitch. Unpitched disables key matching for drums and noise. Silence, very short sounds, noise, or ambiguous multi-note material can show **Unknown / unpitched**; choose a source note manually when needed. Detection identifies a dominant sample root, not a song's major/minor scale, and hosts do not supply the song key.
+
+The output waveform handles trim the exported WAV. Sample paths and root controls are saved with the project and preset, so the original files must remain available. Detection is recalculated from the source file when restored. Presets can be saved, loaded, or set as the default for new instances. Transient slicing remains outside this build.
+
+Time stretching uses Signalsmith Stretch. Moderate length changes sound most natural; extreme expansion/compression and very short percussive sources can produce spectral smearing. Analysis happens during file loading, and playback uses preallocated DSP storage without audio-thread allocations or locks.
 
 ## Identity
 
@@ -11,7 +17,7 @@ These codes are part of the plugin's saved identity. They live in `CMakeLists.tx
 | | |
 | --- | --- |
 | Product | Grok FX |
-| Manufacturer | Rando Audio |
+| Manufacturer | Grok FX |
 | Bundle ID | `com.randoaudio.grokfx` |
 | Plugin code | `Grok` |
 | Manufacturer code | `Raud` |
@@ -37,9 +43,9 @@ Bundles are written under `build/GrokFX_artefacts/Release/`. See `packaging/INST
 
 ## Layout
 
-Pick, Mix and Drop sit left to right. Pick chooses a bank and a type for the armed layer. Mix is four layer strips. Drop shows the rendered clip, the preview transport, the macros and the master. Drag the waveform to write a stereo WAV named `GrokFX_<types>_<key>_<bpm>bpm_<length>.wav`.
+Pick, Mix and Drop sit left to right. Pick chooses a bank and a type for the armed layer. Mix uses horizontal tabs for up to four layers, starting with one. Drop shows the rendered clip, the preview transport, the macros and the master. Drag the waveform to write a stereo WAV named `GrokFX_<types>_<key>_<bpm>bpm_<length>.wav`.
 
-The UI uses an 8 px grid, the Inter family (SIL Open Font License, see `licenses/OFL-Inter.txt`) and one accent blue on a light glass surface. The window keeps its aspect ratio from 75% to 200% and stores that size in the plugin state.
+The UI uses an 8 px grid, the Inter family (SIL Open Font License, see `licenses/OFL-Inter.txt`) and a dark surface with lime accents. The window keeps its aspect ratio from 75% to 200% and stores that size in the plugin state.
 
 ## Tests and CI
 
@@ -47,4 +53,4 @@ Catch2 covers silence, finite output at parameter extremes, 44.1/48/96 kHz, bloc
 
 ## License
 
-Grok FX is licensed under the GNU Affero General Public License v3.0 because it is built with JUCE under JUCE's open-source license. Inter is used under the SIL Open Font License. No paid signing service is configured.
+Grok FX is licensed under the GNU Affero General Public License v3.0 because it is built with JUCE under JUCE's open-source license. Inter is used under the SIL Open Font License. Signalsmith Stretch and Linear are used under the MIT license; both notices are included in the release archives. No paid signing service is configured.

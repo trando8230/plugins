@@ -155,6 +155,7 @@ float Engine::Comb::process(float input, int tap, float feedback, float damp) no
 void Engine::prepare(double newSampleRate)
 {
     sampleRate = sanitizeSampleRate(newSampleRate);
+    for (auto& player : samplePlayers) player.prepare(sampleRate);
     const int reverbMax = static_cast<int>(sampleRate * 0.12) + 8;
     const int baseTaps[8] = { 29, 37, 41, 47, 53, 59, 67, 73 };
     for (int i = 0; i < 8; ++i)
@@ -174,6 +175,7 @@ void Engine::prepare(double newSampleRate)
 
 void Engine::reset() noexcept
 {
+    for (auto& player : samplePlayers) player.reset();
     for (auto& voice : voices)
         voice = {};
     for (auto& comb : combs)
@@ -244,6 +246,13 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     int64_t source = sampleIndex;
     if (layer.reverse && sampleIndex < musical)
         source = musical - 1 - sampleIndex;
+    if (source < musical && (layer.sampleStart > 0.0f || layer.sampleEnd < 1.0f))
+    {
+        const float start = std::clamp(layer.sampleStart, 0.0f, 1.0f);
+        const float end = std::clamp(layer.sampleEnd, start, 1.0f);
+        const double fraction = static_cast<double>(source) / static_cast<double>(musical - 1);
+        source = static_cast<int64_t>((start + fraction * (end - start)) * static_cast<double>(musical - 1));
+    }
 
     const float u = std::clamp(static_cast<float>(source) / static_cast<float>(musical - 1), 0.0f, 1.0f);
     const float offset = std::clamp(layer.offset, 0.0f, 0.9f);
@@ -365,7 +374,9 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     }
 
     float envelope = motion;
-    if (type == static_cast<int>(FxType::impact))
+    if (type == static_cast<int>(FxType::downlifter))
+        envelope = 1.0f - motion;
+    else if (type == static_cast<int>(FxType::impact))
     {
         const float attackSamples = sr * 0.035f;
         if (source >= musical - 1)
@@ -427,10 +438,14 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     voice.tilt = flushDenormal(voice.tilt + high * 0.04f);
     tone += (high - voice.tilt) * (std::clamp(model.character, 0.0f, 1.0f) - 0.5f) * 1.4f;
 
-    const float cutoff = (layer.cutoffStart + (layer.cutoffEnd - layer.cutoffStart) * motion) * brightness;
+    const float filterMotion = type == static_cast<int>(FxType::downlifter) ? 1.0f - motion : motion;
+    const float cutoff = (layer.cutoffStart + (layer.cutoffEnd - layer.cutoffStart) * filterMotion) * brightness;
     const float resonance = std::clamp(layer.resonance * intensity, 0.0f, 0.96f);
     if (layer.filterType != static_cast<int>(FilterType::off))
         tone = filterSample(voice.svf1, voice.svf2, tone, cutoff, resonance, sr, layer.filterType);
+    else if (type == static_cast<int>(FxType::downlifter))
+        tone = filterSample(voice.svf1, voice.svf2, tone, cutoff, resonance, sr,
+                            static_cast<int>(FilterType::lowPass));
     else if (type == static_cast<int>(FxType::noiseSweep))
         tone = filterSample(voice.svf1, voice.svf2, tone, 180.0f + 9000.0f * motion * brightness, 0.25f, sr,
                             static_cast<int>(FilterType::bandPass));
@@ -452,18 +467,55 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
     float dryR = 0.0f;
     float sendR = 0.0f;
     float sendD = 0.0f;
-    const float space = unityMacro(model.space);
+    // At zero Space the reverb send is silent; the midpoint retains the
+    // original default reverb level.
+    const float space = (std::isfinite(model.space) ? std::clamp(model.space, 0.0f, 1.0f) : 0.5f) * 2.0f;
 
     for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
     {
-        const float mono = renderLayer(voices[layerIndex], model, layerIndex, sampleIndex, musical, total, bpm);
-        if (mono == 0.0f)
-            continue;
         const auto& layer = model.layers[layerIndex];
+        float sourceL = 0.0f, sourceR = 0.0f;
+        if (layer.useCustom)
+        {
+            if (!layerAudible(model, layerIndex) || layer.sample == nullptr || sampleIndex < 0 || sampleIndex >= musical)
+                continue;
+            const auto& sample = *layer.sample;
+            const auto count = sample.left.size();
+            if (count < 2 || sample.right.size() != count)
+                continue;
+            float u = static_cast<float>(sampleIndex) / static_cast<float>(std::max<int64_t>(1, musical - 1));
+            if (layer.reverse) u = 1.0f - u;
+            samplePlayers[layerIndex].read(layer, model.keyRoot, sampleIndex, musical, sourceL, sourceR);
+            float envelope = 1.0f;
+            if (u < layer.offset) envelope = 0.0f;
+            if (layer.fadeIn > 0.001f && u < layer.fadeIn) envelope *= curveAt(u / layer.fadeIn, layer.fadeInCurve);
+            if (layer.fadeOut > 0.001f && u > 1.0f - layer.fadeOut) envelope *= curveAt((1.0f - u) / layer.fadeOut, layer.fadeOutCurve);
+            const float gain = dbToGain(layer.volumeDb) * (0.7f + 0.6f * std::clamp(model.intensity, 0.0f, 1.0f)) * 0.65f;
+            sourceL *= envelope * gain;
+            sourceR *= envelope * gain;
+            if (layer.filterType != static_cast<int>(FilterType::off))
+            {
+                auto& voice = voices[layerIndex];
+                if (sampleIndex != voice.lastSample + 1)
+                    voice.svf1 = voice.svf2 = voice.sampleSvfR1 = voice.sampleSvfR2 = 0.0f;
+                voice.lastSample = sampleIndex;
+                const float motion = curveAt(u, layer.shape);
+                const float cutoff = layer.cutoffStart + (layer.cutoffEnd - layer.cutoffStart) * motion;
+                sourceL = filterSample(voice.svf1, voice.svf2, sourceL, cutoff, layer.resonance, static_cast<float>(sampleRate), layer.filterType);
+                sourceR = filterSample(voice.sampleSvfR1, voice.sampleSvfR2, sourceR, cutoff, layer.resonance, static_cast<float>(sampleRate), layer.filterType);
+            }
+            const float driveGain = 1.0f + std::clamp(layer.drive * unityMacro(model.intensity), 0.0f, 1.0f) * 10.0f;
+            sourceL = std::tanh(sourceL * driveGain) / std::tanh(driveGain);
+            sourceR = std::tanh(sourceR * driveGain) / std::tanh(driveGain);
+        }
+        else
+        {
+            sourceL = sourceR = renderLayer(voices[layerIndex], model, layerIndex, sampleIndex, musical, total, bpm);
+        }
         const float pan = std::clamp(layer.pan, -1.0f, 1.0f);
         const float angle = (pan + 1.0f) * 0.25f * pi;
-        float l = mono * std::cos(angle);
-        float r = mono * std::sin(angle);
+        float l = sourceL * std::cos(angle);
+        float r = sourceR * std::sin(angle);
         const float mid = 0.5f * (l + r);
         const float side = 0.5f * (l - r) * (std::clamp(layer.width, 0.0f, 1.0f) * 2.0f);
         l = mid + side;
@@ -483,7 +535,7 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
         dryR = filterSample(masterSvfR1, masterSvfR2, dryR, cutoff, model.masterResonance, sr, model.masterFilter);
     }
 
-    const float masterWidth = std::clamp(model.masterWidth, 0.0f, 1.0f) * space;
+    const float masterWidth = std::clamp(model.masterWidth, 0.0f, 1.0f);
     const float mid = 0.5f * (dryL + dryR);
     const float side = 0.5f * (dryL - dryR) * (masterWidth * 2.0f);
     dryL = mid + side;
@@ -516,7 +568,7 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
     float delayOutR = 0.0f;
     if (prepared && delayL.size() > 8)
     {
-        const double beats = delayBeats(model.delayDivision);
+        const double beats = delayBeats(model.delayDivision, model.delayStyle);
         int tap = static_cast<int>(std::llround(beats * sampleRate * 60.0 / sanitizeBpm(bpm)));
         tap = std::clamp(tap, 1, static_cast<int>(delayL.size()) - 2);
         const int size = static_cast<int>(delayL.size());
@@ -525,7 +577,7 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
         delayOutL = delayL[static_cast<size_t>(read)];
         delayOutR = delayR[static_cast<size_t>(readR)];
         const float feedback = std::clamp(model.delayFeedback, 0.0f, 0.85f);
-        const float excited = sendD * std::clamp(model.delayAmount, 0.0f, 1.0f) * space;
+        const float excited = sendD * std::clamp(model.delayAmount, 0.0f, 1.0f);
         delayL[static_cast<size_t>(delayIndex)] = flushDenormal(excited + delayOutL * feedback);
         delayR[static_cast<size_t>(delayIndex)] = flushDenormal(excited + delayOutR * feedback);
         delayIndex = (delayIndex + 1) % size;
