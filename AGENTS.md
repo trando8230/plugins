@@ -29,3 +29,4 @@
 - Exported audio uses the selected output waveform region. Enforced by `Exported waveform uses the selected trim region`.
 - Sample buffers must stay alive for all audio and offline readers without locks on the audio thread; sample paths and trims survive state restore. Enforced by `Custom stereo samples render and layer trim selects the source region` and `Replacing samples while rendering keeps audio finite`.
 - Sessions predating the new sample, trim, and delay parameters restore their default values instead of retaining settings from the previously loaded state. Enforced by `Old sessions reset newly added controls to their defaults`.
+- Parameter callbacks request peak renders using an atomic flag; worker wakeup is never signaled from the audio callback. Responsiveness is covered by `Drag file is ready before the gesture` and `Closing the editor stops the peak render between chunks`.

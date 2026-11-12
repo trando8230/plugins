@@ -7,10 +7,11 @@ public:
     explicit PeakThread(GrokFxAudioProcessor& processorIn)
         : juce::Thread("GrokFX Peaks"), processor(processorIn) {}
 
-    void request()
+    void request() noexcept
     {
-        dirty.store(true);
-        notify();
+        // Parameter callbacks can arrive on the audio thread. The worker polls
+        // this flag on its existing short wait, so this path never signals a lock.
+        dirty.store(true, std::memory_order_relaxed);
     }
 
     bool consume(grokfx::WavePeaks& destination, grokfx::WavePeaks& layerDestination, int& layerIndex)
