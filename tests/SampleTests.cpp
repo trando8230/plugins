@@ -3,6 +3,7 @@
 #include "dsp/SampleAnalysis.h"
 #include "dsp/SamplePlayer.h"
 #include "dsp/WavExport.h"
+#include <juce_dsp/juce_dsp.h>
 #include <array>
 
 namespace
@@ -43,20 +44,31 @@ juce::AudioBuffer<float> play(grokfx::LayerModel layer, double rate, int count, 
 double frequency(const juce::AudioBuffer<float>& audio, double rate, int channel = 0)
 {
     const int start = audio.getNumSamples() / 4, end = audio.getNumSamples() * 3 / 4;
-    double first = -1.0, last = 0.0;
-    int crossings = 0;
-    for (int i = start + 1; i < end; ++i)
+    const int count = end - start;
+    int order = 1;
+    while ((1 << order) < count * 8) ++order;
+    const int size = 1 << order;
+    std::vector<float> spectrum(static_cast<size_t>(size * 2), 0.0f);
+    double mean = 0.0;
+    for (int i = start; i < end; ++i) mean += audio.getSample(channel, i);
+    mean /= count;
+    // Measure the dominant sustained pitch, not the number of sign changes:
+    // phase-vocoder seek transients can add a zero crossing without moving
+    // the fundamental. A Hann window and zero padding retain sub-Hz accuracy.
+    for (int i = 0; i < count; ++i)
     {
-        const double a = audio.getSample(channel, i - 1), b = audio.getSample(channel, i);
-        if (a < 0.0 && b >= 0.0)
-        {
-            const double position = i - 1 + -a / (b - a);
-            if (first < 0.0) first = position;
-            last = position;
-            ++crossings;
-        }
+        const double window = 0.5 - 0.5 * std::cos(juce::MathConstants<double>::twoPi * i / (count - 1));
+        spectrum[static_cast<size_t>(i)] = static_cast<float>((audio.getSample(channel, start + i) - mean) * window);
     }
-    return crossings > 1 ? (crossings - 1) * rate / (last - first) : 0.0;
+    juce::dsp::FFT fft(order);
+    fft.performFrequencyOnlyForwardTransform(spectrum.data());
+    const auto peak = std::max_element(spectrum.begin() + 1, spectrum.begin() + size / 2);
+    const int bin = static_cast<int>(std::distance(spectrum.begin(), peak));
+    if (*peak < 1.0e-6f) return 0.0;
+    const double a = spectrum[static_cast<size_t>(bin - 1)], b = *peak, c = spectrum[static_cast<size_t>(bin + 1)];
+    const double denominator = a - 2.0 * b + c;
+    const double offset = std::abs(denominator) > 1.0e-12 ? 0.5 * (a - c) / denominator : 0.0;
+    return (bin + offset) * rate / size;
 }
 }
 
