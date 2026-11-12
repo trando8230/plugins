@@ -1,5 +1,6 @@
 #include "Support.h"
 #include "ui/Panels.h"
+#include "dsp/WavExport.h"
 
 TEST_CASE("Layer tabs add and select enabled layers", "[layout]")
 {
@@ -73,4 +74,27 @@ TEST_CASE("Waveform handles change trim without starting a drag", "[layout][trim
     REQUIRE(start == Catch::Approx(0.25f));
     REQUIRE(end == Catch::Approx(1.0f));
     REQUIRE_FALSE(externalDrag);
+}
+
+TEST_CASE("Dropping audio on the custom pad loads the armed layer", "[sample][layout]")
+{
+    auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("grokfx-pad", ".wav", false);
+    juce::AudioBuffer<float> input(2, 1024);
+    for (int i = 0; i < input.getNumSamples(); ++i)
+        input.setSample(0, i, std::sin(static_cast<float>(i) * 0.1f) * 0.3f);
+    input.copyFrom(1, 0, input, 0, 0, input.getNumSamples());
+    REQUIRE(grokfx::writeStereoWav(file, input, 48000.0, grokfx::WavFormat::pcm24));
+    auto plugin = makePlugin();
+    grokfx::PickPanel panel(*plugin);
+    grokfx::SoundPad* custom = nullptr;
+    for (auto* child : panel.getChildren())
+        if (auto* pad = dynamic_cast<grokfx::SoundPad*>(child)) custom = pad;
+    REQUIRE(custom != nullptr);
+    custom->filesDropped({ file.getFullPathName() }, 0, 0);
+    REQUIRE(getReal(*plugin, "l1_useCustom") == Catch::Approx(1.0f));
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    juce::AudioBuffer<float> rendered;
+    plugin->renderMix(rendered, 120.0, 48000.0);
+    REQUIRE(maxAbs(rendered) > 0.01f);
+    REQUIRE(file.deleteFile());
 }

@@ -46,11 +46,30 @@ PickPanel::PickPanel(GrokFxAudioProcessor& processor)
         };
     }
 
-    for (int type = 0; type < static_cast<int>(FxType::count); ++type)
+    for (int type = 0; type <= static_cast<int>(FxType::count); ++type)
     {
         auto* pad = pads.add(new SoundPad(type, [this](int picked)
         {
             const int layer = audio.getArmedLayer();
+            if (picked == static_cast<int>(FxType::count))
+            {
+                const auto path = audio.apvts.state.getProperty("samplePath" + juce::String(layer + 1)).toString();
+                if (path.isEmpty() || !juce::File(path).existsAsFile()) { chooseSample(); return; }
+                if (auto* use = audio.apvts.getParameter(layerParam(layer, "useCustom")))
+                {
+                    use->beginChangeGesture(); use->setValueNotifyingHost(1.0f); use->endChangeGesture();
+                }
+                if (auto* enabled = audio.apvts.getParameter(layerParam(layer, "enabled")))
+                {
+                    enabled->beginChangeGesture(); enabled->setValueNotifyingHost(1.0f); enabled->endChangeGesture();
+                }
+                refresh();
+                return;
+            }
+            if (auto* use = audio.apvts.getParameter(layerParam(layer, "useCustom")))
+            {
+                use->beginChangeGesture(); use->setValueNotifyingHost(0.0f); use->endChangeGesture();
+            }
             if (auto* typeParam = dynamic_cast<juce::RangedAudioParameter*>(audio.apvts.getParameter(layerParam(layer, "type"))))
             {
                 typeParam->beginChangeGesture();
@@ -64,9 +83,48 @@ PickPanel::PickPanel(GrokFxAudioProcessor& processor)
                 enabled->endChangeGesture();
             }
             refresh();
-        }));
+        }, [this](int picked, const juce::File& file) { loadSample(picked, file); }));
         addAndMakeVisible(pad);
     }
+    refresh();
+}
+
+void PickPanel::chooseSample()
+{
+    sampleChooser = std::make_unique<juce::FileChooser>("Choose an audio sample", juce::File(), "*.wav;*.aiff;*.aif;*.flac;*.ogg;*.mp3");
+    juce::Component::SafePointer<PickPanel> safeThis(this);
+    sampleChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis](const juce::FileChooser& chooser)
+        {
+            if (safeThis != nullptr && chooser.getResult() != juce::File())
+                safeThis->loadSample(static_cast<int>(FxType::count), chooser.getResult());
+        });
+}
+
+void PickPanel::loadSample(int type, const juce::File& file)
+{
+    const int layer = audio.getArmedLayer();
+    const auto result = audio.loadSample(layer, file);
+    if (result.failed())
+    {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Sample could not be loaded", result.getErrorMessage());
+        return;
+    }
+    if (auto* use = audio.apvts.getParameter(layerParam(layer, "useCustom")))
+    {
+        use->beginChangeGesture(); use->setValueNotifyingHost(1.0f); use->endChangeGesture();
+    }
+    if (auto* enabled = audio.apvts.getParameter(layerParam(layer, "enabled")))
+    {
+        enabled->beginChangeGesture(); enabled->setValueNotifyingHost(1.0f); enabled->endChangeGesture();
+    }
+    if (type < static_cast<int>(FxType::count))
+        if (auto* typeParam = audio.apvts.getParameter(layerParam(layer, "type")))
+        {
+            typeParam->beginChangeGesture();
+            typeParam->setValueNotifyingHost(typeParam->convertTo0to1(static_cast<float>(type)));
+            typeParam->endChangeGesture();
+        }
     refresh();
 }
 
@@ -101,6 +159,8 @@ void PickPanel::refresh()
     int bank = 0;
     if (auto* parameter = audio.apvts.getRawParameterValue(layerParam(layer, "type")))
         type = juce::roundToInt(parameter->load());
+    if (auto* custom = audio.apvts.getRawParameterValue(layerParam(layer, "useCustom")); custom != nullptr && custom->load() >= 0.5f)
+        type = static_cast<int>(FxType::count);
     if (auto* parameter = audio.apvts.getRawParameterValue(layerParam(layer, "bank")))
         bank = juce::roundToInt(parameter->load());
     for (int i = 0; i < pads.size(); ++i)
@@ -171,6 +231,30 @@ public:
         bindChoice(rollEnd, "rollEnd");
         bindChoice(rollAccel, "rollAccel");
         bindChoice(velCurve, "velCurve");
+        addAndMakeVisible(sampleWave);
+        sampleWave.setCaption("Drag handles to trim this layer");
+        sampleWave.setTooltip("Drag the handles to choose this layer's sample start and end; click to audition.");
+        sampleWave.onPreviewClick = [this](float fraction)
+        {
+            auto* start = audio.apvts.getRawParameterValue(layerParam(index, "sampleStart"));
+            auto* end = audio.apvts.getRawParameterValue(layerParam(index, "sampleEnd"));
+            auto* reverseParam = audio.apvts.getRawParameterValue(layerParam(index, "reverse"));
+            const float first = start != nullptr ? start->load() : 0.0f;
+            const float last = end != nullptr ? end->load() : 1.0f;
+            float position = std::clamp((fraction - first) / std::max(0.001f, last - first), 0.0f, 1.0f);
+            if (reverseParam != nullptr && reverseParam->load() >= 0.5f) position = 1.0f - position;
+            audio.togglePreviewAt(position);
+        };
+        sampleWave.onTrimChange = [this](float start, float end)
+        {
+            for (const auto& update : { std::pair { "sampleStart", start }, std::pair { "sampleEnd", end } })
+                if (auto* parameter = audio.apvts.getParameter(layerParam(index, update.first)))
+                {
+                    parameter->beginChangeGesture();
+                    parameter->setValueNotifyingHost(update.second);
+                    parameter->endChangeGesture();
+                }
+        };
     }
 
     void paint(juce::Graphics& g) override
@@ -183,7 +267,9 @@ public:
         g.drawRoundedRectangle(bounds, Theme::radiusM, armed ? 1.5f : 1.0f);
         g.setColour(Theme::text());
         g.setFont(Theme::font(Theme::typeBody, true));
-        g.drawFittedText("Layer " + juce::String(index + 1), getLocalBounds().reduced(Theme::space2).removeFromTop(24),
+        const auto* custom = audio.apvts.getRawParameterValue(layerParam(index, "useCustom"));
+        const bool usingCustom = custom != nullptr && custom->load() >= 0.5f;
+        g.drawFittedText("Layer " + juce::String(index + 1) + (usingCustom ? "  •  Custom sample" : ""), getLocalBounds().reduced(Theme::space2).removeFromTop(24),
                          juce::Justification::centredLeft, 1);
     }
 
@@ -213,14 +299,33 @@ public:
         area.removeFromTop(Theme::space1);
         std::vector<juce::Component*> row5 { &rollStart, &rollEnd, &rollAccel, &velCurve };
         placeRow(area, row5, Theme::controlH);
+        area.removeFromTop(Theme::space1);
+        sampleWave.setBounds(area.removeFromTop(std::min(100, area.getHeight())).reduced(4, 0));
     }
 
     int contentHeight() const { return 24 + Theme::controlH + 28 + Theme::knobCellH * 3 + Theme::controlH * 2 + Theme::space4; }
 
+    void setPeaks(const WavePeaks& peaks)
+    {
+        sampleWave.setPeaks(peaks.minColumn, peaks.maxColumn, peaks.columns, peaks.dropFraction);
+        sampleWave.tick(1.0f);
+    }
+
+    void refreshTrim()
+    {
+        auto* custom = audio.apvts.getRawParameterValue(layerParam(index, "useCustom"));
+        type.setEnabled(custom == nullptr || custom->load() < 0.5f);
+        auto* start = audio.apvts.getRawParameterValue(layerParam(index, "sampleStart"));
+        auto* end = audio.apvts.getRawParameterValue(layerParam(index, "sampleEnd"));
+        if (start != nullptr && end != nullptr)
+            sampleWave.setTrim(start->load(), end->load());
+    }
+
 private:
     GrokFxAudioProcessor& audio;
+    WaveformView sampleWave;
     int index = 0;
-    GrokChoice type { "Sound type for this layer." };
+    GrokChoice type { "Choose a stock sound for this layer; select a stock pad to exit custom mode." };
     GrokChoice bank { "Timbre bank for this layer." };
     GrokToggle on { "On", "Enable this layer." };
     GrokToggle solo { "Solo", "Listen to this layer alone." };
@@ -317,6 +422,7 @@ void MixPanel::refresh()
         layerTabs[layer]->setVisible(visible);
         layerTabs[layer]->setToggleState(layer == selectedLayer, juce::dontSendNotification);
         cards[layer]->setVisible(layer == selectedLayer);
+        if (layer == selectedLayer) cards[layer]->refreshTrim();
         cards[layer]->repaint();
     }
     bool full = true;
@@ -326,6 +432,12 @@ void MixPanel::refresh()
     addLayer.setEnabled(!full);
     if (layoutChanged)
         resized();
+}
+
+void MixPanel::setLayerPeaks(const WavePeaks& peaks, int layer)
+{
+    if (juce::isPositiveAndBelow(layer, cards.size()))
+        cards[layer]->setPeaks(peaks);
 }
 
 DropPanel::DropPanel(GrokFxAudioProcessor& processor, std::function<void()> dragFiles)

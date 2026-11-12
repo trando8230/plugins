@@ -313,11 +313,11 @@ void DiceButton::paintButton(juce::Graphics& g, bool highlighted, bool down)
     g.fillPath(dots);
 }
 
-SoundPad::SoundPad(int typeIndex, std::function<void(int)> onPick)
-    : type(typeIndex), pick(std::move(onPick))
+SoundPad::SoundPad(int typeIndex, std::function<void(int)> onPick, std::function<void(int, const juce::File&)> onDrop)
+    : type(typeIndex), pick(std::move(onPick)), dropSample(std::move(onDrop))
 {
-    setTooltip("Add " + juce::String(fxTypeName(type))
-               + ". The strip along the bottom is a drop zone for your own sample. Custom samples are coming soon.");
+    setTooltip(type == static_cast<int>(FxType::count) ? "Select or load a custom audio sample."
+               : "Select " + juce::String(fxTypeName(type)) + " or drop an audio file to use on this layer.");
     setRepaintsOnMouseActivity(false);
 }
 
@@ -345,6 +345,14 @@ bool SoundPad::tick(float dt)
 void SoundPad::drawIcon(juce::Graphics& g, juce::Rectangle<float> area) const
 {
     const auto ink = selected ? Theme::onAccent() : Theme::accent();
+    if (type == static_cast<int>(FxType::count))
+    {
+        g.setColour(ink);
+        const auto centre = area.getCentre();
+        g.drawLine(centre.x - 6.0f, centre.y, centre.x + 6.0f, centre.y, 1.5f);
+        g.drawLine(centre.x, centre.y - 6.0f, centre.x, centre.y + 6.0f, 1.5f);
+        return;
+    }
     const float middle = area.getCentreY();
     const float maxHeight = area.getHeight() * 0.46f;
     g.setColour(ink.withAlpha(0.2f));
@@ -396,13 +404,13 @@ void SoundPad::paint(juce::Graphics& g)
     drawIcon(g, content.removeFromTop(28).reduced(8, 4).toFloat());
     g.setColour(selected ? Theme::onAccent() : Theme::text());
     g.setFont(Theme::font(Theme::typeLabel, true));
-    g.drawFittedText(fxTypeName(type), content, juce::Justification::centred, 2);
+    g.drawFittedText(type == static_cast<int>(FxType::count) ? "Custom" : fxTypeName(type), content, juce::Justification::centred, 2);
 
     g.setColour(selected ? Theme::onAccent().withAlpha(0.14f) : Theme::accentSoft());
     g.fillRoundedRectangle(drop.toFloat().reduced(2.0f, 1.0f), Theme::radiusS);
     g.setColour(selected ? Theme::onAccent() : Theme::textMuted());
     g.setFont(Theme::font(Theme::typeCaption));
-    g.drawFittedText(notice > 0.4f ? "Coming soon" : "Drop a sample here", drop, juce::Justification::centred, 1);
+    g.drawFittedText(notice > 0.4f ? "Sample loaded" : "Drop a sample here", drop, juce::Justification::centred, 1);
 }
 
 void SoundPad::mouseEnter(const juce::MouseEvent&) { hoverTarget = 1.0f; }
@@ -413,9 +421,10 @@ void SoundPad::mouseDown(const juce::MouseEvent&)
         pick(type);
 }
 
-void SoundPad::filesDropped(const juce::StringArray&, int, int)
+void SoundPad::filesDropped(const juce::StringArray& files, int, int)
 {
-    notice = 1.0f;
+    if (!files.isEmpty() && dropSample != nullptr)
+        dropSample(type, juce::File(files[0]));
     repaint();
 }
 
@@ -558,7 +567,7 @@ void WaveformView::paint(juce::Graphics& g)
     g.setColour(juce::Colours::white.withAlpha(0.78f));
     g.setFont(Theme::font(Theme::typeCaption, true));
     auto caption = getLocalBounds().removeFromBottom(status.isNotEmpty() ? 32 : 18);
-    g.drawFittedText(status.isNotEmpty() ? status : "Drag onto a track", caption, juce::Justification::centred, 2);
+    g.drawFittedText(status.isNotEmpty() ? status : captionText, caption, juce::Justification::centred, 2);
 }
 
 void OutputMeter::setLevels(float left, float right)

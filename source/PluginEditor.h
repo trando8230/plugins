@@ -63,6 +63,7 @@ private:
     double presetMessageUntil = 0.0;
     float blurScale = 1.0f;
     bool applyingScale = false;
+    int lastPeakLayer = -1;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GrokFxAudioProcessorEditor)
 };

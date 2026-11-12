@@ -3,6 +3,7 @@
 #include "PluginIdentity.h"
 #include "parameters/Parameters.h"
 #include "dsp/WavExport.h"
+#include <juce_audio_formats/juce_audio_formats.h>
 
 #include <algorithm>
 
@@ -47,6 +48,9 @@ struct GrokFxAudioProcessor::Raw
     struct Layer
     {
         std::atomic<float>* enabled = nullptr;
+        std::atomic<float>* useCustom = nullptr;
+        std::atomic<float>* sampleStart = nullptr;
+        std::atomic<float>* sampleEnd = nullptr;
         std::atomic<float>* type = nullptr;
         std::atomic<float>* bank = nullptr;
         std::atomic<float>* volume = nullptr;
@@ -130,6 +134,9 @@ GrokFxAudioProcessor::GrokFxAudioProcessor()
     {
         auto& slot = raw->layers[layer];
         slot.enabled = bind(grokfx::layerParam(layer, "enabled"));
+        slot.useCustom = bind(grokfx::layerParam(layer, "useCustom"));
+        slot.sampleStart = bind(grokfx::layerParam(layer, "sampleStart"));
+        slot.sampleEnd = bind(grokfx::layerParam(layer, "sampleEnd"));
         slot.type = bind(grokfx::layerParam(layer, "type"));
         slot.bank = bind(grokfx::layerParam(layer, "bank"));
         slot.volume = bind(grokfx::layerParam(layer, "volume"));
@@ -197,9 +204,127 @@ GrokFxAudioProcessor::GrokFxAudioProcessor()
     const auto defaultFile = defaultPresetFile();
     if (defaultFile.existsAsFile())
         juce::ignoreUnused(loadPreset(defaultFile));
+    startTimer(100);
 }
 
-GrokFxAudioProcessor::~GrokFxAudioProcessor() = default;
+GrokFxAudioProcessor::~GrokFxAudioProcessor() { stopTimer(); }
+
+void GrokFxAudioProcessor::timerCallback()
+{
+    if (sampleReaders.load(std::memory_order_seq_cst) == 0)
+    {
+        const juce::ScopedLock lock(sampleLock);
+        if (sampleReaders.load(std::memory_order_seq_cst) == 0)
+            std::erase_if(sampleStorage, [this](const auto& owned)
+            {
+                for (auto& current : layerSamples)
+                    if (current.load(std::memory_order_seq_cst) == owned.get())
+                        return false;
+                return true;
+            });
+    }
+    if (!restoreSamplesPending.exchange(false, std::memory_order_acq_rel))
+        return;
+    const auto state = [this]()
+    {
+        const juce::ScopedLock lock(stateLock);
+        return apvts.copyState();
+    }();
+    juce::String errors[grokfx::layerCount];
+    for (int layer = 0; layer < grokfx::layerCount; ++layer)
+    {
+        const auto path = state.getProperty("samplePath" + juce::String(layer + 1)).toString();
+        const juce::File file(path);
+        if (path.isEmpty() || !file.existsAsFile() || loadSample(layer, file, false).failed())
+        {
+            if (restoreSamplesPending.load(std::memory_order_acquire))
+                return;
+            layerSamples[layer].store(nullptr, std::memory_order_seq_cst);
+            if (path.isNotEmpty())
+                errors[layer] = "Layer " + juce::String(layer + 1) + ": sample unavailable.";
+        }
+    }
+    if (restoreSamplesPending.load(std::memory_order_acquire))
+        return;
+    const juce::ScopedLock lock(sampleLock);
+    for (int layer = 0; layer < grokfx::layerCount; ++layer)
+        sampleErrors[layer] = errors[layer];
+}
+
+juce::String GrokFxAudioProcessor::lastSampleError() const
+{
+    const juce::ScopedLock lock(sampleLock);
+    juce::String result;
+    for (const auto& error : sampleErrors)
+        if (error.isNotEmpty()) result << error << " ";
+    return result.trim();
+}
+
+juce::Result GrokFxAudioProcessor::loadSample(int layer, const juce::File& file, bool rememberPath)
+{
+    if (layer < 0 || layer >= grokfx::layerCount)
+        return juce::Result::fail("Invalid layer.");
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(file));
+    if (reader == nullptr || reader->lengthInSamples < 2 || reader->sampleRate <= 0.0)
+        return juce::Result::fail("Could not read this audio file.");
+    constexpr int64_t maximumFrames = 8 * 1024 * 1024;
+    if (reader->lengthInSamples > maximumFrames)
+        return juce::Result::fail("This sample is too long to load (maximum 8 million frames).");
+    const int frames = static_cast<int>(reader->lengthInSamples);
+    juce::AudioBuffer<float> decoded(2, frames);
+    if (!reader->read(&decoded, 0, frames, 0, true, true))
+        return juce::Result::fail("Could not decode the audio file.");
+    auto sample = std::make_unique<grokfx::LoadedSample>();
+    sample->sampleRate = reader->sampleRate;
+    sample->left.assign(decoded.getReadPointer(0), decoded.getReadPointer(0) + frames);
+    sample->right.assign(decoded.getReadPointer(1), decoded.getReadPointer(1) + frames);
+    for (int i = 0; i < frames; ++i)
+    {
+        auto clean = [](float value) { return std::isfinite(value) ? std::clamp(value, -1.0f, 1.0f) : 0.0f; };
+        sample->left[static_cast<size_t>(i)] = clean(sample->left[static_cast<size_t>(i)]);
+        sample->right[static_cast<size_t>(i)] = clean(sample->right[static_cast<size_t>(i)]);
+    }
+    for (int column = 0; column < grokfx::waveformColumns; ++column)
+    {
+        const int start = static_cast<int>((static_cast<int64_t>(column) * frames) / grokfx::waveformColumns);
+        const int end = std::max(start + 1, static_cast<int>((static_cast<int64_t>(column + 1) * frames) / grokfx::waveformColumns));
+        for (int i = start; i < std::min(end, frames); ++i)
+        {
+            const float left = sample->left[static_cast<size_t>(i)], right = sample->right[static_cast<size_t>(i)];
+            sample->minColumn[column] = std::min({ sample->minColumn[column], left, right });
+            sample->maxColumn[column] = std::max({ sample->maxColumn[column], left, right });
+        }
+    }
+    const juce::Identifier pathProperty("samplePath" + juce::String(layer + 1));
+    {
+        const juce::ScopedLock stateGuard(stateLock);
+        if (!rememberPath && apvts.state.getProperty(pathProperty).toString() != file.getFullPathName())
+            return juce::Result::fail("The requested sample changed while loading.");
+        {
+            const juce::ScopedLock lock(sampleLock);
+            sampleErrors[layer].clear();
+            const auto* next = sample.get();
+            sampleStorage.push_back(std::move(sample));
+            layerSamples[layer].store(next, std::memory_order_seq_cst);
+            if (sampleReaders.load(std::memory_order_seq_cst) == 0)
+            {
+                std::erase_if(sampleStorage, [this](const auto& owned)
+                {
+                    for (auto& current : layerSamples)
+                        if (current.load(std::memory_order_seq_cst) == owned.get())
+                            return false;
+                    return true;
+                });
+            }
+        }
+        if (rememberPath)
+            apvts.state.setProperty(pathProperty, file.getFullPathName(), nullptr);
+        apvts.state.sendPropertyChangeMessage(pathProperty);
+    }
+    return juce::Result::ok();
+}
 
 void GrokFxAudioProcessor::togglePreviewAt(float fraction)
 {
@@ -283,6 +408,10 @@ grokfx::RenderModel GrokFxAudioProcessor::readModel() const noexcept
         const auto& slot = raw->layers[i];
         auto& layer = model.layers[i];
         layer.enabled = loadBool(slot.enabled);
+        layer.useCustom = loadBool(slot.useCustom);
+        layer.sample = layerSamples[i].load(std::memory_order_seq_cst);
+        layer.sampleStart = std::clamp(loadRaw(slot.sampleStart), 0.0f, 1.0f);
+        layer.sampleEnd = std::clamp(loadRaw(slot.sampleEnd), layer.sampleStart, 1.0f);
         layer.type = loadInt(slot.type, 0);
         layer.bank = loadInt(slot.bank, 0);
         layer.volumeDb = loadRaw(slot.volume);
@@ -458,6 +587,7 @@ void GrokFxAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::
         return;
     }
 
+    const SampleReadGuard sampleGuard(*this);
     const auto model = readModel();
     const int64_t total = std::max<int64_t>(1, grokfx::renderedSamples(model, transport.bpm, currentSampleRate));
     const bool grid = model.followHost && transport.playing && transport.hasPpq;
@@ -696,6 +826,9 @@ void GrokFxAudioProcessor::toggleAB()
             apvts.replaceState(restored);
         showingB.store(false);
     }
+    for (auto& sample : layerSamples)
+        sample.store(nullptr, std::memory_order_seq_cst);
+    restoreSamplesPending.store(true, std::memory_order_release);
 }
 
 juce::String GrokFxAudioProcessor::makeExportFileName(double bpm, int stemLayer) const
@@ -705,6 +838,7 @@ juce::String GrokFxAudioProcessor::makeExportFileName(double bpm, int stemLayer)
 
 int64_t GrokFxAudioProcessor::renderMix(juce::AudioBuffer<float>& destination, double bpm, double sampleRate) const
 {
+    const SampleReadGuard sampleGuard(*this);
     grokfx::Engine local;
     local.renderOffline(destination, readModel(), bpm, sampleRate);
     return destination.getNumSamples();
@@ -719,6 +853,7 @@ juce::String GrokFxAudioProcessor::lastExportError() const
 juce::Array<juce::File> GrokFxAudioProcessor::renderExportFiles(const juce::File& directory, double hostSampleRate,
                                                                  bool (*shouldStop)(void*), void* stopContext) const
 {
+    const SampleReadGuard sampleGuard(*this);
     auto setError = [this](const juce::String& message)
     {
         const juce::ScopedLock lock(exportLock);
@@ -836,6 +971,9 @@ void GrokFxAudioProcessor::setStateInformation(const void* data, int sizeInBytes
     slotB = tree.getProperty("slotB").toString();
     stripSessionMeta(tree);
     apvts.replaceState(tree);
+    for (auto& sample : layerSamples)
+        sample.store(nullptr, std::memory_order_seq_cst);
+    restoreSamplesPending.store(true, std::memory_order_release);
     freeSample.store(0, std::memory_order_relaxed);
     oneshotRemaining.store(0, std::memory_order_relaxed);
     playFraction.store(0.0f, std::memory_order_relaxed);

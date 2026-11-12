@@ -94,6 +94,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addFloat(*group, layerParam(layer, "velEnd"), layerName(layer, "Velocity End"), Range(0.0f, 1.0f), 1.0f, "%");
         addChoice(*group, layerParam(layer, "velCurve"), layerName(layer, "Velocity Curve"), curves, 1);
         addInt(*group, layerParam(layer, "seed"), layerName(layer, "Variation"), 1, 999983, 1000 + layer * 997, "seed");
+        addBool(*group, layerParam(layer, "useCustom"), layerName(layer, "Use Custom Sample"), false);
+        addFloat(*group, layerParam(layer, "sampleStart"), layerName(layer, "Sample Start"), Range(0.0f, 1.0f), 0.0f, "%");
+        addFloat(*group, layerParam(layer, "sampleEnd"), layerName(layer, "Sample End"), Range(0.0f, 1.0f), 1.0f, "%");
 
         layout.add(std::move(group));
     }

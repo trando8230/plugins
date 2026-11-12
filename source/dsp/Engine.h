@@ -43,6 +43,8 @@ private:
         double phase[8] {};
         float svf1 = 0.0f;
         float svf2 = 0.0f;
+        float sampleSvfR1 = 0.0f;
+        float sampleSvfR2 = 0.0f;
         float tilt = 0.0f;
         float formantY1[3] {};
         float formantY2[3] {};

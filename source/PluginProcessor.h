@@ -3,9 +3,22 @@
 #include "dsp/Engine.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
-class GrokFxAudioProcessor : public juce::AudioProcessor
+class GrokFxAudioProcessor : public juce::AudioProcessor, private juce::Timer
 {
 public:
+    class SampleReadGuard
+    {
+    public:
+        static_assert(std::atomic<int>::is_always_lock_free);
+        static_assert(std::atomic<const grokfx::LoadedSample*>::is_always_lock_free);
+        explicit SampleReadGuard(const GrokFxAudioProcessor& processor) noexcept : owner(processor)
+        { owner.sampleReaders.fetch_add(1, std::memory_order_seq_cst); }
+        ~SampleReadGuard() { owner.sampleReaders.fetch_sub(1, std::memory_order_seq_cst); }
+        SampleReadGuard(const SampleReadGuard&) = delete;
+        SampleReadGuard& operator=(const SampleReadGuard&) = delete;
+    private:
+        const GrokFxAudioProcessor& owner;
+    };
     GrokFxAudioProcessor();
     ~GrokFxAudioProcessor() override;
 
@@ -49,6 +62,8 @@ public:
     juce::Result savePreset(const juce::File& file);
     juce::Result loadPreset(const juce::File& file);
     static juce::File defaultPresetFile();
+    juce::Result loadSample(int layer, const juce::File& file, bool rememberPath = true);
+    juce::String lastSampleError() const;
 
     uint32_t nonFiniteCount() const noexcept { return engine.nonFiniteCount(); }
     void resetNonFiniteCount() noexcept { engine.resetNonFiniteCount(); }
@@ -68,8 +83,15 @@ public:
     juce::String lastExportError() const;
 
 private:
+    void timerCallback() override;
     struct Raw;
     std::unique_ptr<Raw> raw;
+    mutable std::atomic<int> sampleReaders { 0 };
+    std::atomic<const grokfx::LoadedSample*> layerSamples[grokfx::layerCount] {};
+    mutable juce::CriticalSection sampleLock;
+    juce::String sampleErrors[grokfx::layerCount];
+    std::vector<std::unique_ptr<grokfx::LoadedSample>> sampleStorage;
+    std::atomic<bool> restoreSamplesPending { false };
     mutable grokfx::Engine engine;
     double currentSampleRate = 44100.0;
     juce::AudioBuffer<float> floatScratch;

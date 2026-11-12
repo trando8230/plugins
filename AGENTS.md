@@ -27,3 +27,4 @@
 - Space at zero removes the reverb send while preserving the dry signal. Enforced by `Space at zero removes reverb without changing the dry sound`.
 - Right-clicking a knob toggles a saved lock that protects its value from Randomize. Enforced by `Right click locks one knob against randomization and saves it`.
 - Exported audio uses the selected output waveform region. Enforced by `Exported waveform uses the selected trim region`.
+- Sample buffers must stay alive for all audio and offline readers without locks on the audio thread; sample paths and trims survive state restore. Enforced by `Custom stereo samples render and layer trim selects the source region` and `Replacing samples while rendering keeps audio finite`.

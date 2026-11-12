@@ -15,10 +15,13 @@ public:
     bool tick(float dt);
 
 private:
+    void chooseSample();
+    void loadSample(int type, const juce::File& file);
     GrokFxAudioProcessor& audio;
     juce::Label title { {}, "Pick" };
     juce::OwnedArray<GrokButton> banks;
     juce::OwnedArray<SoundPad> pads;
+    std::unique_ptr<juce::FileChooser> sampleChooser;
 };
 
 class MixPanel : public juce::Component
@@ -28,6 +31,7 @@ public:
     ~MixPanel() override;
     void resized() override;
     void refresh();
+    void setLayerPeaks(const WavePeaks& peaks, int layer);
 
 private:
     class Card;

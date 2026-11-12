@@ -13,12 +13,14 @@ public:
         notify();
     }
 
-    bool consume(grokfx::WavePeaks& destination)
+    bool consume(grokfx::WavePeaks& destination, grokfx::WavePeaks& layerDestination, int& layerIndex)
     {
         const juce::ScopedLock lock(mutex);
         if (!ready)
             return false;
         destination = latest;
+        layerDestination = latestLayer;
+        layerIndex = latestLayerIndex;
         ready = false;
         return true;
     }
@@ -44,6 +46,7 @@ public:
                 continue;
             }
 
+            const GrokFxAudioProcessor::SampleReadGuard sampleGuard(processor);
             const auto model = processor.readModel();
             const double bpm = processor.getDisplayedBpm();
             constexpr double rate = 44100.0;
@@ -56,6 +59,31 @@ public:
                 continue;
 
             auto peaks = grokfx::Engine::peaksFor(buffer, grokfx::musicalSamples(model.length, bpm, rate));
+            const int selectedLayer = processor.getArmedLayer();
+            auto solo = model;
+            for (int i = 0; i < grokfx::layerCount; ++i)
+            {
+                solo.layers[i].enabled = i == selectedLayer;
+                solo.layers[i].solo = false;
+                solo.layers[i].mute = i != selectedLayer;
+            }
+            solo.layers[selectedLayer].sampleStart = 0.0f;
+            solo.layers[selectedLayer].sampleEnd = 1.0f;
+            grokfx::WavePeaks layerPeaks;
+            if (const auto* custom = solo.layers[selectedLayer].sample;
+                solo.layers[selectedLayer].useCustom && custom != nullptr)
+            {
+                std::copy_n(custom->minColumn, grokfx::waveformColumns, layerPeaks.minColumn);
+                std::copy_n(custom->maxColumn, grokfx::waveformColumns, layerPeaks.maxColumn);
+            }
+            else
+            {
+                grokfx::Engine soloEngine;
+                juce::AudioBuffer<float> soloBuffer;
+                soloEngine.renderOffline(soloBuffer, solo, bpm, rate, stop, this);
+                if (threadShouldExit() || dirty.load()) continue;
+                layerPeaks = grokfx::Engine::peaksFor(soloBuffer, grokfx::musicalSamples(solo.length, bpm, rate));
+            }
             const double hostRate = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 48000.0;
             auto directory = juce::File::getSpecialLocation(juce::File::tempDirectory).getChildFile("GrokFX");
             auto exported = processor.renderExportFiles(directory, hostRate, stop, this);
@@ -66,6 +94,8 @@ public:
 
             const juce::ScopedLock lock(mutex);
             latest = peaks;
+            latestLayer = layerPeaks;
+            latestLayerIndex = selectedLayer;
             ready = true;
             files = exported;
         }
@@ -75,6 +105,8 @@ private:
     GrokFxAudioProcessor& processor;
     juce::CriticalSection mutex;
     grokfx::WavePeaks latest;
+    grokfx::WavePeaks latestLayer;
+    int latestLayerIndex = 0;
     juce::Array<juce::File> files;
     std::atomic<bool> dirty { false };
     bool ready = false;
@@ -307,6 +339,12 @@ void GrokFxAudioProcessorEditor::tickTree(juce::Component& component, float dt)
 
 void GrokFxAudioProcessorEditor::timerCallback()
 {
+    const int armed = audio.getArmedLayer();
+    if (armed != lastPeakLayer)
+    {
+        lastPeakLayer = armed;
+        if (peaks != nullptr) peaks->request();
+    }
     tickTree(*this, 1.0f / 60.0f);
     pick.tick(1.0f / 60.0f);
     pick.refresh();
@@ -319,13 +357,18 @@ void GrokFxAudioProcessorEditor::timerCallback()
 
     if (peaks != nullptr)
     {
-        grokfx::WavePeaks latest;
-        if (peaks->consume(latest))
+        grokfx::WavePeaks latest, latestLayer;
+        int layerIndex = 0;
+        if (peaks->consume(latest, latestLayer, layerIndex))
+        {
             drop.waveform().setPeaks(latest.minColumn, latest.maxColumn, latest.columns, latest.dropFraction);
+            mix.setLayerPeaks(latestLayer, layerIndex);
+        }
     }
 
     const auto exportError = audio.lastExportError();
-    drop.waveform().setStatus(exportError.isNotEmpty() ? exportError
+    const auto sampleError = audio.lastSampleError();
+    drop.waveform().setStatus(exportError.isNotEmpty() ? exportError : sampleError.isNotEmpty() ? sampleError
         : (juce::Time::getMillisecondCounterHiRes() < presetMessageUntil ? presetMessage : juce::String()));
     if (exportError.isNotEmpty())
         drop.waveform().setTooltip(exportError);
@@ -345,6 +388,7 @@ void GrokFxAudioProcessorEditor::valueTreePropertyChanged(juce::ValueTree&, cons
 
 void GrokFxAudioProcessorEditor::renderWaveformSync()
 {
+    const GrokFxAudioProcessor::SampleReadGuard sampleGuard(audio);
     const auto model = audio.readModel();
     const double bpmValue = audio.getDisplayedBpm();
     constexpr double rate = 44100.0;
@@ -354,6 +398,31 @@ void GrokFxAudioProcessorEditor::renderWaveformSync()
     const auto peaksNow = grokfx::Engine::peaksFor(buffer, grokfx::musicalSamples(model.length, bpmValue, rate));
     drop.waveform().setPeaks(peaksNow.minColumn, peaksNow.maxColumn, peaksNow.columns, peaksNow.dropFraction);
     drop.waveform().tick(1.0f);
+    const int layerIndex = audio.getArmedLayer();
+    auto solo = model;
+    for (int i = 0; i < grokfx::layerCount; ++i)
+    {
+        solo.layers[i].enabled = i == layerIndex;
+        solo.layers[i].solo = false;
+        solo.layers[i].mute = i != layerIndex;
+    }
+    solo.layers[layerIndex].sampleStart = 0.0f;
+    solo.layers[layerIndex].sampleEnd = 1.0f;
+    grokfx::WavePeaks layerPeaks;
+    if (const auto* sample = solo.layers[layerIndex].sample;
+        solo.layers[layerIndex].useCustom && sample != nullptr)
+    {
+        std::copy_n(sample->minColumn, grokfx::waveformColumns, layerPeaks.minColumn);
+        std::copy_n(sample->maxColumn, grokfx::waveformColumns, layerPeaks.maxColumn);
+    }
+    else
+    {
+        grokfx::Engine soloEngine;
+        juce::AudioBuffer<float> soloBuffer;
+        soloEngine.renderOffline(soloBuffer, solo, bpmValue, rate);
+        layerPeaks = grokfx::Engine::peaksFor(soloBuffer, grokfx::musicalSamples(solo.length, bpmValue, rate));
+    }
+    mix.setLayerPeaks(layerPeaks, layerIndex);
 }
 
 juce::Array<juce::File> GrokFxAudioProcessorEditor::readyDragFiles() const

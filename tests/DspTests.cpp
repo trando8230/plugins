@@ -525,3 +525,125 @@ TEST_CASE("Exported waveform uses the selected trim region", "[export][trim]")
     REQUIRE(files[0].deleteFile());
     REQUIRE(directory.deleteFile());
 }
+
+TEST_CASE("Custom stereo samples render and layer trim selects the source region", "[sample]")
+{
+    auto file = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                    .getNonexistentChildFile("grokfx-sample", ".wav", false);
+    juce::AudioBuffer<float> input(2, 1000);
+    for (int i = 0; i < input.getNumSamples(); ++i)
+    {
+        input.setSample(0, i, i < 500 ? 0.1f : 0.7f);
+        input.setSample(1, i, i < 500 ? 0.4f : -0.3f);
+    }
+    REQUIRE(grokfx::writeStereoWav(file, input, 48000.0, grokfx::WavFormat::float32));
+    auto plugin = makePlugin();
+    REQUIRE(plugin->loadSample(0, file).wasOk());
+    setReal(*plugin, "l1_useCustom", 1.0f);
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    setReal(*plugin, "l1_drive", 0.0f);
+    setReal(*plugin, "l1_reverbSend", 0.0f);
+    setReal(*plugin, "l1_delaySend", 0.0f);
+    setReal(*plugin, "masterWidth", 0.5f);
+    setReal(*plugin, "l1_sampleEnd", 0.49f);
+    juce::AudioBuffer<float> first;
+    plugin->renderMix(first, 120.0, 48000.0);
+    REQUIRE(first.getRMSLevel(0, 1000, 1000) > 0.005f);
+    REQUIRE(first.getRMSLevel(1, 1000, 1000) > first.getRMSLevel(0, 1000, 1000));
+    setReal(*plugin, "l1_sampleStart", 0.51f);
+    setReal(*plugin, "l1_sampleEnd", 1.0f);
+    juce::AudioBuffer<float> second;
+    plugin->renderMix(second, 120.0, 48000.0);
+    REQUIRE(second.getRMSLevel(0, 1000, 1000) > first.getRMSLevel(0, 1000, 1000) * 2.0f);
+    REQUIRE(second.getSample(1, 1000) < 0.0f);
+    juce::MemoryBlock state;
+    plugin->getStateInformation(state);
+    auto restored = makePlugin();
+    restored->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(250);
+    juce::AudioBuffer<float> recalled;
+    restored->renderMix(recalled, 120.0, 48000.0);
+    REQUIRE(recalled.getRMSLevel(0, 1000, 1000) > 0.005f);
+    REQUIRE(file.deleteFile());
+}
+
+TEST_CASE("Replacing samples while rendering keeps audio finite", "[sample][realtime]")
+{
+    auto firstFile = juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("grokfx-a", ".wav", false);
+    auto secondFile = juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("grokfx-b", ".wav", false);
+    juce::AudioBuffer<float> input(2, 256);
+    for (int channel = 0; channel < 2; ++channel)
+        for (int i = 0; i < 256; ++i)
+            input.setSample(channel, i, std::sin(static_cast<float>(i) * 0.1f) * 0.2f);
+    REQUIRE(grokfx::writeStereoWav(firstFile, input, 48000.0, grokfx::WavFormat::pcm24));
+    REQUIRE(grokfx::writeStereoWav(secondFile, input, 48000.0, grokfx::WavFormat::pcm24));
+    auto plugin = makePlugin();
+    REQUIRE(plugin->loadSample(0, firstFile).wasOk());
+    setReal(*plugin, "l1_useCustom", 1.0f);
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    setReal(*plugin, "preview", 1.0f);
+    plugin->prepareToPlay(48000.0, 64);
+    std::atomic<bool> failed { false };
+    std::thread writer([&]
+    {
+        for (int i = 0; i < 80; ++i)
+            if (plugin->loadSample(0, (i % 2) == 0 ? firstFile : secondFile).failed())
+                failed.store(true);
+    });
+    for (int i = 0; i < 12; ++i)
+    {
+        juce::AudioBuffer<float> live(2, 64);
+        juce::MidiBuffer midi;
+        plugin->processBlock(live, midi);
+        for (int j = 0; j < live.getNumSamples(); ++j)
+            if (!std::isfinite(live.getSample(0, j))) failed.store(true);
+        juce::AudioBuffer<float> rendered;
+        plugin->renderMix(rendered, 120.0, 48000.0);
+        for (int j = 0; j < rendered.getNumSamples(); ++j)
+            if (!std::isfinite(rendered.getSample(0, j))) failed.store(true);
+    }
+    writer.join();
+    REQUIRE_FALSE(failed.load());
+    REQUIRE(firstFile.deleteFile());
+    REQUIRE(secondFile.deleteFile());
+}
+
+TEST_CASE("Stock layer trim changes the rendered source", "[sample][trim]")
+{
+    auto plugin = makePlugin();
+    setReal(*plugin, "length", static_cast<float>(grokfx::Length::oneBeat));
+    setReal(*plugin, "l1_shape", 0.0f);
+    setReal(*plugin, "l1_reverbSend", 0.0f);
+    setReal(*plugin, "l1_delaySend", 0.0f);
+    juce::AudioBuffer<float> original;
+    plugin->renderMix(original, 120.0, 48000.0);
+    setReal(*plugin, "l1_sampleStart", 0.5f);
+    juce::AudioBuffer<float> trimmed;
+    plugin->renderMix(trimmed, 120.0, 48000.0);
+    REQUIRE(trimmed.getNumSamples() == original.getNumSamples());
+    REQUIRE(trimmed.getRMSLevel(0, 0, 2000) > original.getRMSLevel(0, 0, 2000) * 2.0f);
+}
+
+TEST_CASE("Missing restored samples are reported and stay silent", "[sample][state]")
+{
+    auto file = juce::File::getSpecialLocation(juce::File::tempDirectory).getNonexistentChildFile("grokfx-missing", ".wav", false);
+    juce::AudioBuffer<float> input(2, 1024);
+    for (int channel = 0; channel < 2; ++channel)
+        for (int i = 0; i < input.getNumSamples(); ++i)
+            input.setSample(channel, i, 0.3f);
+    REQUIRE(grokfx::writeStereoWav(file, input, 48000.0, grokfx::WavFormat::pcm24));
+    auto plugin = makePlugin();
+    REQUIRE(plugin->loadSample(0, file).wasOk());
+    setReal(*plugin, "l1_useCustom", 1.0f);
+    juce::MemoryBlock state;
+    plugin->getStateInformation(state);
+    REQUIRE(file.deleteFile());
+    auto restored = makePlugin();
+    restored->setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    juce::MessageManager::getInstance()->runDispatchLoopUntil(250);
+    REQUIRE(restored->lastSampleError().contains("Layer 1"));
+    juce::AudioBuffer<float> rendered;
+    setReal(*restored, "length", static_cast<float>(grokfx::Length::oneBeat));
+    restored->renderMix(rendered, 120.0, 48000.0);
+    REQUIRE(maxAbs(rendered) == Catch::Approx(0.0f));
+}

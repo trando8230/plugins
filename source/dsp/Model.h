@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace grokfx
 {
@@ -282,8 +283,21 @@ inline float unityMacro(float macro) noexcept
     return 0.35f + 1.3f * m; // 0.5 -> 1.0
 }
 
+struct LoadedSample
+{
+    std::vector<float> left;
+    std::vector<float> right;
+    double sampleRate = 0.0;
+    float minColumn[waveformColumns] {};
+    float maxColumn[waveformColumns] {};
+};
+
 struct LayerModel
 {
+    const LoadedSample* sample = nullptr;
+    bool useCustom = false;
+    float sampleStart = 0.0f;
+    float sampleEnd = 1.0f;
     int type = 0;
     int bank = 0;
     int shape = 0;
@@ -385,7 +399,8 @@ inline juce::String exportFileName(const RenderModel& model, double bpm, int ste
     juce::String types;
     if (stemLayer >= 0 && stemLayer < layerCount)
     {
-        types = "L" + juce::String(stemLayer + 1) + "-" + fxTypeToken(model.layers[stemLayer].type);
+        types = "L" + juce::String(stemLayer + 1) + "-"
+              + (model.layers[stemLayer].useCustom ? "Custom" : fxTypeToken(model.layers[stemLayer].type));
     }
     else
     {
@@ -395,7 +410,7 @@ inline juce::String exportFileName(const RenderModel& model, double bpm, int ste
                 continue;
             if (types.isNotEmpty())
                 types << "-";
-            types << fxTypeToken(model.layers[i].type);
+            types << (model.layers[i].useCustom ? "Custom" : fxTypeToken(model.layers[i].type));
         }
         if (types.isEmpty())
             types = "Empty";

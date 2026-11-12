@@ -92,7 +92,7 @@ class SoundPad : public juce::Component,
                  public juce::SettableTooltipClient
 {
 public:
-    SoundPad(int typeIndex, std::function<void(int)> onPick);
+    SoundPad(int typeIndex, std::function<void(int)> onPick, std::function<void(int, const juce::File&)> onDrop);
     void setSelected(bool shouldSelect);
     bool tick(float dt);
     void paint(juce::Graphics& g) override;
@@ -107,6 +107,7 @@ private:
 
     int type = 0;
     std::function<void(int)> pick;
+    std::function<void(int, const juce::File&)> dropSample;
     bool selected = false;
     float hover = 0.0f;
     float hoverTarget = 0.0f;
@@ -120,6 +121,7 @@ public:
     void setPeaks(const float* mins, const float* maxes, int count, float dropFraction);
     void setPlayhead(float fraction, bool running);
     void setStatus(const juce::String& text);
+    void setCaption(juce::String text) { captionText = std::move(text); }
     void setTrim(float start, float end);
     void mouseDown(const juce::MouseEvent&) override;
     void mouseDrag(const juce::MouseEvent&) override;
@@ -144,6 +146,7 @@ private:
     float trimStart = 0.0f;
     float trimEnd = 1.0f;
     juce::String status;
+    juce::String captionText { "Drag onto a track" };
 };
 
 class OutputMeter : public juce::Component,

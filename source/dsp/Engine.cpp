@@ -244,6 +244,13 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     int64_t source = sampleIndex;
     if (layer.reverse && sampleIndex < musical)
         source = musical - 1 - sampleIndex;
+    if (source < musical && (layer.sampleStart > 0.0f || layer.sampleEnd < 1.0f))
+    {
+        const float start = std::clamp(layer.sampleStart, 0.0f, 1.0f);
+        const float end = std::clamp(layer.sampleEnd, start, 1.0f);
+        const double fraction = static_cast<double>(source) / static_cast<double>(musical - 1);
+        source = static_cast<int64_t>((start + fraction * (end - start)) * static_cast<double>(musical - 1));
+    }
 
     const float u = std::clamp(static_cast<float>(source) / static_cast<float>(musical - 1), 0.0f, 1.0f);
     const float offset = std::clamp(layer.offset, 0.0f, 0.9f);
@@ -434,6 +441,9 @@ float Engine::renderLayer(Voice& voice, const RenderModel& model, int index, int
     const float resonance = std::clamp(layer.resonance * intensity, 0.0f, 0.96f);
     if (layer.filterType != static_cast<int>(FilterType::off))
         tone = filterSample(voice.svf1, voice.svf2, tone, cutoff, resonance, sr, layer.filterType);
+    else if (type == static_cast<int>(FxType::downlifter))
+        tone = filterSample(voice.svf1, voice.svf2, tone, cutoff, resonance, sr,
+                            static_cast<int>(FilterType::lowPass));
     else if (type == static_cast<int>(FxType::noiseSweep))
         tone = filterSample(voice.svf1, voice.svf2, tone, 180.0f + 9000.0f * motion * brightness, 0.25f, sr,
                             static_cast<int>(FilterType::bandPass));
@@ -461,14 +471,58 @@ void Engine::renderSample(const RenderModel& model, double bpm, int64_t sampleIn
 
     for (int layerIndex = 0; layerIndex < layerCount; ++layerIndex)
     {
-        const float mono = renderLayer(voices[layerIndex], model, layerIndex, sampleIndex, musical, total, bpm);
-        if (mono == 0.0f)
-            continue;
         const auto& layer = model.layers[layerIndex];
+        float sourceL = 0.0f, sourceR = 0.0f;
+        if (layer.useCustom)
+        {
+            if (!layerAudible(model, layerIndex) || layer.sample == nullptr || sampleIndex < 0 || sampleIndex >= musical)
+                continue;
+            const auto& sample = *layer.sample;
+            const auto count = sample.left.size();
+            if (count < 2 || sample.right.size() != count)
+                continue;
+            float u = static_cast<float>(sampleIndex) / static_cast<float>(std::max<int64_t>(1, musical - 1));
+            if (layer.reverse) u = 1.0f - u;
+            const float start = std::clamp(layer.sampleStart, 0.0f, 1.0f);
+            const float end = std::clamp(layer.sampleEnd, start, 1.0f);
+            const float pitchRatio = std::pow(2.0f, (static_cast<float>(layer.pitchSemis) + layer.fineCents / 100.0f) / 12.0f);
+            const double position = (start + u * (end - start) * pitchRatio) * static_cast<double>(count - 1);
+            if (position > end * static_cast<double>(count - 1))
+                continue;
+            const auto index = std::min(static_cast<size_t>(position), count - 2);
+            const float fraction = static_cast<float>(position - static_cast<double>(index));
+            sourceL = sample.left[index] + (sample.left[index + 1] - sample.left[index]) * fraction;
+            sourceR = sample.right[index] + (sample.right[index + 1] - sample.right[index]) * fraction;
+            float envelope = 1.0f;
+            if (u < layer.offset) envelope = 0.0f;
+            if (layer.fadeIn > 0.001f && u < layer.fadeIn) envelope *= curveAt(u / layer.fadeIn, layer.fadeInCurve);
+            if (layer.fadeOut > 0.001f && u > 1.0f - layer.fadeOut) envelope *= curveAt((1.0f - u) / layer.fadeOut, layer.fadeOutCurve);
+            const float gain = dbToGain(layer.volumeDb) * (0.7f + 0.6f * std::clamp(model.intensity, 0.0f, 1.0f)) * 0.65f;
+            sourceL *= envelope * gain;
+            sourceR *= envelope * gain;
+            if (layer.filterType != static_cast<int>(FilterType::off))
+            {
+                auto& voice = voices[layerIndex];
+                if (sampleIndex != voice.lastSample + 1)
+                    voice.svf1 = voice.svf2 = voice.sampleSvfR1 = voice.sampleSvfR2 = 0.0f;
+                voice.lastSample = sampleIndex;
+                const float motion = curveAt(u, layer.shape);
+                const float cutoff = layer.cutoffStart + (layer.cutoffEnd - layer.cutoffStart) * motion;
+                sourceL = filterSample(voice.svf1, voice.svf2, sourceL, cutoff, layer.resonance, static_cast<float>(sampleRate), layer.filterType);
+                sourceR = filterSample(voice.sampleSvfR1, voice.sampleSvfR2, sourceR, cutoff, layer.resonance, static_cast<float>(sampleRate), layer.filterType);
+            }
+            const float driveGain = 1.0f + std::clamp(layer.drive * unityMacro(model.intensity), 0.0f, 1.0f) * 10.0f;
+            sourceL = std::tanh(sourceL * driveGain) / std::tanh(driveGain);
+            sourceR = std::tanh(sourceR * driveGain) / std::tanh(driveGain);
+        }
+        else
+        {
+            sourceL = sourceR = renderLayer(voices[layerIndex], model, layerIndex, sampleIndex, musical, total, bpm);
+        }
         const float pan = std::clamp(layer.pan, -1.0f, 1.0f);
         const float angle = (pan + 1.0f) * 0.25f * pi;
-        float l = mono * std::cos(angle);
-        float r = mono * std::sin(angle);
+        float l = sourceL * std::cos(angle);
+        float r = sourceR * std::sin(angle);
         const float mid = 0.5f * (l + r);
         const float side = 0.5f * (l - r) * (std::clamp(layer.width, 0.0f, 1.0f) * 2.0f);
         l = mid + side;
