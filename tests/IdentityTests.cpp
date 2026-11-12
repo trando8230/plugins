@@ -4,7 +4,7 @@
 TEST_CASE("Plugin identity codes stay stable", "[identity]")
 {
     REQUIRE(std::string(grokfx::productName) == "Grok FX");
-    REQUIRE(std::string(grokfx::manufacturer) == "Rando Audio");
+    REQUIRE(std::string(grokfx::manufacturer) == "Grok FX");
     REQUIRE(std::string(grokfx::bundleId) == "com.randoaudio.grokfx");
     REQUIRE(std::string(grokfx::pluginCode) == "Grok");
     REQUIRE(std::string(grokfx::manufacturerCode) == "Raud");

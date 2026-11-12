@@ -1,6 +1,6 @@
 # Grok FX
 
-Grok FX is a stereo instrument by Rando Audio. It builds transition effects in the song's key and tempo: risers, downlifters, impacts, snare rolls, noise sweeps, reverse-cymbal swells and sub drops. Load it on a MIDI track, preview the mix, then drag the waveform card onto an audio track.
+Grok FX is a stereo instrument for building transition effects in the song's key and tempo: risers, downlifters, impacts, snare rolls, noise sweeps, reverse-cymbal swells and sub drops. Load it on a MIDI track, preview the mix, then drag the waveform card onto an audio track.
 
 Drop an audio file on a sound pad or choose the Custom slot to use a sample on a layer. Drag the layer waveform handles to select its source region; the selected region is resampled to the phrase length. The output waveform handles trim the exported WAV. Sample paths are saved with the project and preset, so the original files must remain available. Automatic key detection and transient slicing are not included. Presets can be saved, loaded, or set as the default for new instances.
 
@@ -11,7 +11,7 @@ These codes are part of the plugin's saved identity. They live in `CMakeLists.tx
 | | |
 | --- | --- |
 | Product | Grok FX |
-| Manufacturer | Rando Audio |
+| Manufacturer | Grok FX |
 | Bundle ID | `com.randoaudio.grokfx` |
 | Plugin code | `Grok` |
 | Manufacturer code | `Raud` |

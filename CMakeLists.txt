@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 # Identity lives here and is generated into PluginIdentity.h.
 # Hosts store these codes in the session, so they must not change.
 set(GROKFX_PRODUCT_NAME "Grok FX")
-set(GROKFX_MANUFACTURER "Rando Audio")
+set(GROKFX_MANUFACTURER "Grok FX")
 set(GROKFX_BUNDLE_ID "com.randoaudio.grokfx")
 set(GROKFX_PLUGIN_CODE "Grok")
 set(GROKFX_MANUFACTURER_CODE "Raud")
